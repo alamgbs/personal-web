@@ -2,53 +2,16 @@
 
 import React, { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
+import { CLUSTERS, type Project } from '@/components/portfolio/ProjectsGraph'
 
-/* ── Data ─────────────────────────────────────────────────────────────────── */
+const TimelineSection = dynamic(() => import('@/components/portfolio/TimelineSection'), { ssr: false })
+const ProjectsGraph = dynamic(
+  () => import('@/components/portfolio/ProjectsGraph'),
+  { ssr: false },
+)
 
-const PROJECTS = [
-  {
-    cat:  'DATA & IA',
-    year: '2021',
-    title: 'ASUGREEN',
-    desc:  'NDVI + satellite imagery via Google Earth Engine. Vegetation/traffic/temp correlation.',
-    tags:  ['GEE', 'Python', 'NDVI'],
-  },
-  {
-    cat:  'PRODUCTO',
-    year: '2026',
-    title: 'Gestión de Obras',
-    desc:  'Progress tracking, budget approval y reporting para constructoras. B2B focus.',
-    tags:  ['Next.js', 'Supabase', 'B2B'],
-  },
-  {
-    cat:  'VENTURES',
-    year: '2025',
-    title: 'KaruLab',
-    desc:  'Meal prep + plataforma nutricional B2B/B2C con macro tracking.',
-    tags:  ['Expo', 'React Native', 'Supabase'],
-  },
-  {
-    cat:  'VENTURES',
-    year: '2026',
-    title: 'KAPI',
-    desc:  'Fintech para educación financiera de jóvenes. Acelerado en Moonshot/ITTI.',
-    tags:  ['Fintech', 'Next.js', 'TypeScript'],
-  },
-  {
-    cat:  'DATA & IA',
-    year: '2021',
-    title: 'Segmentación Telco',
-    desc:  'Python + análisis de transacciones para segmentar hábitos de consumo B2B/B2C.',
-    tags:  ['Python', 'Clustering', 'Telco'],
-  },
-  {
-    cat:  'AUTOMATIZACIÓN',
-    year: '2021',
-    title: 'RPA & SET',
-    desc:  'Automatización extracción perfil tributario SET para segmentación empresarial.',
-    tags:  ['RPA', 'Python', 'Telco'],
-  },
-] as const
+/* ── Data (timeline only) ───────────────────────────────────────────────── */
 
 const TIMELINE = [
   { period: '2013–2018', role: 'Ing. Industrial',         org: 'FIUNA',           loc: 'Asunción, PY', side: 'top'    },
@@ -147,6 +110,7 @@ export default function Home() {
   const [lang, setLang] = useState<Lang>('es')
   const [scrollPct, setScrollPct] = useState(0)
   const [navScrolled, setNavScrolled] = useState(false)
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
   const t = T[lang]
 
   useReveal()
@@ -567,20 +531,28 @@ export default function Home() {
       </section>
 
       {/* ═══════════════════════════════════════════════════════════════════ */}
-      {/* PROJECTS                                                            */}
+      {/* PROJECTS — Force Graph                                             */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
+
+      {/* The graph renders as a fixed overlay — this section is a scroll spacer */}
       <section
         id="projects"
         style={{
-          padding:  'clamp(4rem,8vh,7rem) clamp(1.5rem,4vw,3rem)',
-          position: 'relative',
+          position:   'relative',
+          height:     '100vh',
+          // pointer-events:none so normal scrolling works through empty space
+          pointerEvents: 'none',
         }}
       >
-        <TickMark pos="tl" />
-
-        {/* Section header */}
+        {/* Section label — floats top-left above the graph */}
         <div
-          style={{ marginBottom: 'clamp(2.5rem,5vh,4rem)' }}
+          style={{
+            position:      'absolute',
+            top:           'clamp(4rem,8vh,7rem)',
+            left:          'clamp(1.5rem,4vw,3rem)',
+            zIndex:        10,
+            pointerEvents: 'none',
+          }}
           data-reveal
           className="reveal-fade"
         >
@@ -611,20 +583,171 @@ export default function Home() {
           </h2>
         </div>
 
-        {/* Grid */}
+        {/* Cluster legend — bottom left */}
         <div
           style={{
-            display:             'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 320px), 1fr))',
-            gap:                 '1px',
-            border:              '1px solid var(--color-border)',
+            position:      'absolute',
+            bottom:        '2rem',
+            left:          'clamp(1.5rem,4vw,3rem)',
+            zIndex:        10,
+            pointerEvents: 'none',
+            display:       'flex',
+            flexWrap:      'wrap',
+            gap:           '0.5rem 1.25rem',
+            maxWidth:      '360px',
           }}
         >
-          {PROJECTS.map((p, i) => (
-            <ProjectCard key={p.title} project={p} delay={i * 60} />
+          {CLUSTERS.map(cl => (
+            <span
+              key={cl.id}
+              style={{
+                display:    'flex',
+                alignItems: 'center',
+                gap:        '6px',
+                fontFamily: 'var(--font-mono)',
+                fontSize:   '0.65rem',
+                letterSpacing: '0.08em',
+                color:      'var(--color-text-faint)',
+              }}
+            >
+              <span
+                style={{
+                  display:      'inline-block',
+                  width:        '8px',
+                  height:       '8px',
+                  borderRadius: '50%',
+                  background:   cl.color,
+                  flexShrink:   0,
+                }}
+              />
+              {cl.label.toUpperCase()}
+            </span>
           ))}
         </div>
       </section>
+
+      {/* Force graph fixed overlay — pointer-events:auto on SVG internals */}
+      <ProjectsGraph
+        selected={selectedProject}
+        onSelect={setSelectedProject}
+      />
+
+      {/* Detail card — slides in when a project is selected */}
+      <div
+        style={{
+          position:    'fixed',
+          bottom:      '80px',
+          right:       '56px',
+          zIndex:      20,
+          width:       'min(360px, calc(100vw - 2rem))',
+          background:  '#111110',
+          border:      '1px solid rgba(232,230,223,0.22)',
+          borderRadius:'3px',
+          padding:     '1.5rem',
+          transform:   selectedProject ? 'translateY(0)' : 'translateY(24px)',
+          opacity:     selectedProject ? 1 : 0,
+          pointerEvents: selectedProject ? 'auto' : 'none',
+          transition:  'transform 320ms cubic-bezier(0.16,1,0.3,1), opacity 320ms ease',
+        }}
+      >
+        {selectedProject && (
+          <>
+            {/* Close */}
+            <button
+              onClick={() => setSelectedProject(null)}
+              style={{
+                position:   'absolute',
+                top:        '0.75rem',
+                right:      '0.75rem',
+                background: 'none',
+                border:     'none',
+                color:      'var(--color-text-faint)',
+                fontFamily: 'var(--font-mono)',
+                fontSize:   '0.9rem',
+                cursor:     'pointer',
+                lineHeight: 1,
+                padding:    '4px 6px',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--color-text)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--color-text-faint)')}
+            >
+              ✕
+            </button>
+
+            {/* Category + year */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', marginBottom: '0.75rem' }}>
+              <span
+                style={{
+                  fontFamily:    'var(--font-mono)',
+                  fontSize:      '0.65rem',
+                  letterSpacing: '0.1em',
+                  color:         CLUSTERS.find(c => c.id === selectedProject.cl)?.color ?? 'var(--color-acid)',
+                }}
+              >
+                {(CLUSTERS.find(c => c.id === selectedProject.cl)?.label ?? selectedProject.cl).toUpperCase()}
+              </span>
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize:   '0.65rem',
+                  color:      'var(--color-text-faint)',
+                }}
+              >
+                {selectedProject.year}
+              </span>
+            </div>
+
+            {/* Title */}
+            <h3
+              style={{
+                fontFamily:    'var(--font-heading)',
+                fontWeight:    500,
+                fontSize:      '1.15rem',
+                letterSpacing: '-0.015em',
+                color:         'var(--color-text)',
+                margin:        0,
+                marginBottom:  '0.6rem',
+              }}
+            >
+              {selectedProject.title}
+            </h3>
+
+            {/* Desc */}
+            <p
+              style={{
+                fontFamily:   'var(--font-body)',
+                fontSize:     '0.85rem',
+                color:        'var(--color-text-faint)',
+                lineHeight:   1.65,
+                margin:       0,
+                marginBottom: '1rem',
+              }}
+            >
+              {selectedProject.desc}
+            </p>
+
+            {/* Tags */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+              {selectedProject.tags.map((tag) => (
+                <span
+                  key={tag}
+                  style={{
+                    fontFamily:    'var(--font-mono)',
+                    fontSize:      '0.65rem',
+                    letterSpacing: '0.06em',
+                    color:         'var(--color-text-faint)',
+                    border:        '1px solid var(--color-border)',
+                    borderRadius:  '2px',
+                    padding:       '2px 7px',
+                  }}
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
 
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {/* TIMELINE                                                            */}
@@ -996,130 +1119,7 @@ function TickMark({ pos }: { pos: 'tl' | 'tr' | 'bl' | 'br' }) {
 }
 
 /* ── Project card ─────────────────────────────────────────────────────────── */
-
-function ProjectCard({
-  project,
-  delay,
-}: {
-  project: typeof PROJECTS[number]
-  delay:   number
-}) {
-  return (
-    <article
-      className="proj-card"
-      data-reveal
-      style={{
-        display:        'flex',
-        flexDirection:  'column',
-        gap:            '0.75rem',
-        padding:        'clamp(1.25rem,3vw,2rem)',
-        background:     'transparent',
-        borderRight:    '1px solid var(--color-border)',
-        borderBottom:   '1px solid var(--color-border)',
-        cursor:         'default',
-        transition:     'background 200ms',
-        animationDelay: `${delay}ms`,
-        position:       'relative',
-      }}
-    >
-      {/* Category + year */}
-      <div
-        style={{
-          display:        'flex',
-          alignItems:     'center',
-          justifyContent: 'space-between',
-        }}
-      >
-        <span
-          style={{
-            fontFamily:    'var(--font-mono)',
-            fontSize:      '0.65rem',
-            letterSpacing: '0.1em',
-            color:         'var(--color-acid)',
-          }}
-        >
-          {project.cat}
-        </span>
-        <span
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize:   '0.65rem',
-            color:      'var(--color-text-faint)',
-          }}
-        >
-          {project.year}
-        </span>
-      </div>
-
-      {/* Title */}
-      <h3
-        style={{
-          fontFamily:    'var(--font-heading)',
-          fontWeight:    500,
-          fontSize:      'clamp(1rem,2vw,1.2rem)',
-          letterSpacing: '-0.015em',
-          lineHeight:    1.25,
-          color:         'var(--color-text)',
-          margin:        0,
-        }}
-      >
-        {project.title}
-      </h3>
-
-      {/* Desc */}
-      <p
-        style={{
-          fontFamily: 'var(--font-body)',
-          fontSize:   '0.85rem',
-          color:      'var(--color-text-faint)',
-          lineHeight: 1.6,
-          margin:     0,
-          flexGrow:   1,
-        }}
-      >
-        {project.desc}
-      </p>
-
-      {/* Tags */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.25rem' }}>
-        {project.tags.map((tag) => (
-          <span
-            key={tag}
-            style={{
-              fontFamily:    'var(--font-mono)',
-              fontSize:      '0.65rem',
-              letterSpacing: '0.06em',
-              color:         'var(--color-text-faint)',
-              border:        '1px solid var(--color-border)',
-              borderRadius:  '2px',
-              padding:       '2px 7px',
-            }}
-          >
-            {tag}
-          </span>
-        ))}
-      </div>
-
-      {/* Arrow indicator */}
-      <span
-        className="proj-arrow"
-        aria-hidden
-        style={{
-          position:   'absolute',
-          top:        'clamp(1rem,2vw,1.5rem)',
-          right:      'clamp(1rem,2vw,1.5rem)',
-          fontFamily: 'var(--font-mono)',
-          fontSize:   '0.8rem',
-          color:      'var(--color-text-faint)',
-          opacity:    0,
-          transition: 'opacity 200ms, transform 200ms',
-        }}
-      >
-        ↗
-      </span>
-    </article>
-  )
-}
+// (Replaced by ProjectsGraph force-directed visualization)
 
 /* ── Timeline item ────────────────────────────────────────────────────────── */
 
