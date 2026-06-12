@@ -421,38 +421,9 @@ export default function TimelineSection() {
               ¿Trabajamos<br />
               <span style={{ color: 'var(--color-acid, #d6ff3f)' }}>juntos?</span>
             </h2>
-            <p style={{
-              fontSize:   15,
-              color:      'var(--color-text-faint, #615f58)',
-              lineHeight: 1.6,
-              margin:     '18px 0 28px',
-              maxWidth:   320,
-            }}>
-              Abierto a consulting externo, proyectos de producto y colaboraciones sistémicas.
-            </p>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 28 }}>
               <a
-                href="mailto:hola@alambenitez.com"
-                style={{
-                  display:        'inline-flex',
-                  alignItems:     'center',
-                  gap:            8,
-                  fontFamily:     'var(--font-mono, monospace)',
-                  fontSize:       11,
-                  letterSpacing:  '0.1em',
-                  textTransform:  'uppercase',
-                  padding:        '11px 18px',
-                  background:     'var(--color-acid, #d6ff3f)',
-                  color:          'var(--color-bg, #0c0c0a)',
-                  borderRadius:   999,
-                  textDecoration: 'none',
-                  transition:     'filter 0.2s',
-                }}
-              >
-                hola@alambenitez.com
-              </a>
-              <a
-                href="https://github.com/alamgbs"
+                href="https://wa.me/595985177770"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
@@ -463,15 +434,38 @@ export default function TimelineSection() {
                   fontSize:       11,
                   letterSpacing:  '0.1em',
                   textTransform:  'uppercase',
-                  padding:        '11px 18px',
-                  border:         '1px solid rgba(232,230,223,0.15)',
+                  padding:        '11px 20px',
+                  background:     'var(--color-acid, #d6ff3f)',
+                  color:          'var(--color-bg, #0c0c0a)',
+                  borderRadius:   999,
+                  textDecoration: 'none',
+                  fontWeight:     700,
+                  transition:     'filter 0.2s',
+                }}
+              >
+                WhatsApp
+              </a>
+              <a
+                href="https://www.linkedin.com/in/alambenitez/"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  display:        'inline-flex',
+                  alignItems:     'center',
+                  gap:            8,
+                  fontFamily:     'var(--font-mono, monospace)',
+                  fontSize:       11,
+                  letterSpacing:  '0.1em',
+                  textTransform:  'uppercase',
+                  padding:        '11px 20px',
+                  border:         '1px solid rgba(232,230,223,0.2)',
                   color:          'var(--color-text-faint, #615f58)',
                   borderRadius:   999,
                   textDecoration: 'none',
                   transition:     'border-color 0.2s, color 0.2s',
                 }}
               >
-                GitHub
+                LinkedIn
               </a>
             </div>
           </div>

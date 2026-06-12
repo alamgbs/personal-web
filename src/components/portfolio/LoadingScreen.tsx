@@ -93,33 +93,32 @@ export default function LoadingScreen({ onComplete }: LoadingScreenProps) {
 
     container.appendChild(fragment)
 
-    // GSAP timeline
+    // GSAP timeline — immediate explosive dissolve, no hold
     const tl = gsap.timeline({
       onComplete: () => {
         gsap.to(container, {
           opacity: 0,
-          duration: 0.3,
+          duration: 0.25,
           onComplete,
         })
       },
     })
 
-    // Hold briefly so it's visible
-    tl.to({}, { duration: 0.6 })
-
-    // Wave dissolve from center outward
+    // Explosion: pieces scatter outward from center, top-down blast view
     tl.to(cubes, {
-      rotateX: () => gsap.utils.random(-60, 60),
-      rotateY: () => gsap.utils.random(-60, 60),
-      scale: () => gsap.utils.random(1.1, 1.6),
+      rotateX: () => gsap.utils.random(-110, 110),
+      rotateY: () => gsap.utils.random(-110, 110),
+      x:       () => gsap.utils.random(-60, 60),
+      y:       () => gsap.utils.random(-60, 60),
+      scale:   () => gsap.utils.random(0.05, 2.4),
       opacity: 0,
-      duration: 0.8,
-      ease: 'power2.in',
+      duration: 0.55,
+      ease: 'power3.in',
       stagger: {
         from: 'center',
         grid: [rows, cols],
-        amount: 1.0,
-        ease: 'power1.in',
+        amount: 0.55,
+        ease: 'power2.in',
       },
     })
 

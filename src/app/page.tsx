@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
-import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { CLUSTERS, type Project } from '@/components/portfolio/ProjectsGraph'
 
@@ -21,7 +20,7 @@ const T = {
     nav_contact:     'Contacto',
     name:            'Alam Benítez',
     descriptor:      'ING. INDUSTRIAL · DATOS · PRODUCTO',
-    sub:             'Construyo sistemas que funcionan — automatización de procesos, inteligencia de datos y producto digital. De la planta al código, sin intermediarios.',
+    sub:             'Diseño y ejecuto sistemas para organizaciones — automatización de procesos, inteligencia de datos y producto digital.',
     estado_k:        'ESTADO',
     estado_v:        'Disponible · Consulting',
     rol_k:           'ROL',
@@ -30,7 +29,6 @@ const T = {
     ubicacion_v:     'Asunción, PY',
     projects_kicker: 'WORK',
     projects_title:  'Proyectos seleccionados',
-    footer_copy:     '© 2026 Alam Benítez — Asunción, PY',
   },
   en: {
     role:            'Industrial Eng. · Systems',
@@ -39,7 +37,7 @@ const T = {
     nav_contact:     'Contact',
     name:            'Alam Benítez',
     descriptor:      'IND. ENGINEERING · DATA · PRODUCT',
-    sub:             'I build systems that work — process automation, data intelligence, and digital product. From the plant floor to the codebase.',
+    sub:             'I design and run systems for organizations — process automation, data intelligence, and digital product.',
     estado_k:        'STATUS',
     estado_v:        'Available · Consulting',
     rol_k:           'ROLE',
@@ -48,7 +46,6 @@ const T = {
     ubicacion_v:     'Asunción, PY',
     projects_kicker: 'WORK',
     projects_title:  'Selected projects',
-    footer_copy:     '© 2026 Alam Benítez — Asunción, PY',
   },
 } as const
 
@@ -639,47 +636,6 @@ export default function Home() {
       </div>
 
       <TimelineSection />
-
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      {/* FOOTER                                                              */}
-      {/* ═══════════════════════════════════════════════════════════════════ */}
-      <footer
-        style={{
-          padding:        'clamp(1.5rem,3vh,2rem) clamp(1.5rem,4vw,3rem)',
-          borderTop:      '1px solid var(--color-border)',
-          display:        'flex',
-          alignItems:     'center',
-          justifyContent: 'space-between',
-          flexWrap:       'wrap',
-          gap:            '0.5rem',
-        }}
-      >
-        <span
-          style={{
-            fontFamily:    'var(--font-mono)',
-            fontSize:      '0.7rem',
-            letterSpacing: '0.06em',
-            color:         'var(--color-text-faint)',
-          }}
-        >
-          {t.footer_copy}
-        </span>
-        <Link
-          href="/mission-control"
-          style={{
-            fontFamily:    'var(--font-mono)',
-            fontSize:      '0.7rem',
-            letterSpacing: '0.06em',
-            color:         'var(--color-text-faint)',
-            opacity:       0.4,
-            transition:    'color 200ms, opacity 200ms',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.color = 'var(--color-acid)'; e.currentTarget.style.opacity = '1' }}
-          onMouseLeave={e => { e.currentTarget.style.color = 'var(--color-text-faint)'; e.currentTarget.style.opacity = '0.4' }}
-        >
-          [mission control]
-        </Link>
-      </footer>
 
       {/* ── Page-level keyframes ─────────────────────────────────────────── */}
       <style>{`

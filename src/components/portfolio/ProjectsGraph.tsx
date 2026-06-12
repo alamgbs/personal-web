@@ -84,6 +84,7 @@ export default function ProjectsGraph({ onSelect, selected }: ProjectsGraphProps
   const simRef     = useRef<d3.Simulation<SimNode, SimLink> | null>(null)
   const [ready,          setReady]          = useState(false)
   const [scrollProgress, setScrollProgress] = useState(0)
+  const [graphHidden,    setGraphHidden]    = useState(false)
 
   const clusterColor = useCallback((id: string) =>
     CLUSTERS.find(c => c.id === id)?.color ?? '#888', [])
@@ -96,13 +97,21 @@ export default function ProjectsGraph({ onSelect, selected }: ProjectsGraphProps
     function update() {
       const hero     = document.getElementById('hero')
       const projects = document.getElementById('projects')
+      const tray     = document.getElementById('tray')
       if (!hero || !projects) return
 
+      const y        = window.scrollY
       const heroH    = hero.offsetHeight
       const heroTop  = hero.offsetTop
-      const start    = heroTop + heroH * 0.25   // transition begins at 25% of hero scroll
-      const end      = heroTop + heroH * 0.85   // fully interactive by 85%
-      const y        = window.scrollY
+      const start    = heroTop + heroH * 0.25
+      const end      = heroTop + heroH * 0.85
+
+      // Hide once timeline starts
+      if (tray && y >= tray.offsetTop - 80) {
+        setGraphHidden(true)
+        return
+      }
+      setGraphHidden(false)
 
       const p = Math.max(0, Math.min(1, (y - start) / (end - start)))
       setScrollProgress(p)
@@ -195,7 +204,7 @@ export default function ProjectsGraph({ onSelect, selected }: ProjectsGraphProps
     const linkEl = gLinks
       .selectAll<SVGLineElement, SimLink>('line')
       .data(links).enter().append('line')
-      .attr('stroke', 'rgba(232,230,223,0.08)')
+      .attr('stroke', 'rgba(232,230,223,0.18)')
       .attr('stroke-width', 1)
 
     const hubEls = gNodes
@@ -307,7 +316,7 @@ export default function ProjectsGraph({ onSelect, selected }: ProjectsGraphProps
     const fadeTimer = setTimeout(() => {
       hubEls.transition().duration(800).style('opacity', 1)
       projEls.transition().duration(800).delay((_d, i) => i * 40).style('opacity', 1)
-      hubLabels.transition().duration(800).style('opacity', 1)
+      // hub labels and proj labels revealed via interactive effect, not here
       setReady(true)
     }, 200)
 
@@ -338,6 +347,24 @@ export default function ProjectsGraph({ onSelect, selected }: ProjectsGraphProps
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  /* ── Show/hide all labels based on interactive state ───────────────── */
+
+  const interactive = scrollProgress > 0.85
+
+  useEffect(() => {
+    if (!svgRef.current) return
+    const svg = d3.select(svgRef.current)
+    if (interactive) {
+      svg.selectAll('.hub-label').transition().duration(400).style('opacity', 1)
+      svg.selectAll('.proj-label-g').transition().duration(400).style('opacity', 1)
+      svg.selectAll('.proj-year-g').transition().duration(400).style('opacity', 0.6)
+    } else {
+      svg.selectAll('.hub-label').transition().duration(200).style('opacity', 0)
+      svg.selectAll('.proj-label-g').transition().duration(200).style('opacity', 0)
+      svg.selectAll('.proj-year-g').transition().duration(200).style('opacity', 0)
+    }
+  }, [interactive])
 
   /* ── Selection highlight ────────────────────────────────────────────── */
 
@@ -371,14 +398,13 @@ export default function ProjectsGraph({ onSelect, selected }: ProjectsGraphProps
   /* ── Derive visual state from scrollProgress ────────────────────────── */
 
   // ambient  → full interactive
-  // opacity: 0.25 → 1.0
+  // opacity: 0.25 → 1.0, hidden when graphHidden
   // translateX: 28% → 0%   (shifts graph to right half when ambient)
   // scale: 0.62 → 1.0
-  const p      = scrollProgress
-  const opacity   = ready ? (0.25 + p * 0.75) : 0
+  const p          = scrollProgress
+  const opacity    = graphHidden ? 0 : (ready ? (0.25 + p * 0.75) : 0)
   const translateX = (1 - p) * 28    // % units
-  const scale     = 0.62 + p * 0.38
-  const interactive = p > 0.85
+  const scale      = 0.62 + p * 0.38
 
   return (
     <div
