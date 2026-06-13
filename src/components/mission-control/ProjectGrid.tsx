@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState } from 'react'
 import { ProjectBacklog } from './ProjectBacklog'
 
@@ -126,7 +127,20 @@ export function ProjectGrid({ projects }: { projects: Project[] }) {
 
                 {/* Links + counts row */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', gap: '10px' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Link
+                      href={`/mission-control/proyectos/${project.slug}`}
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        fontSize: '10px',
+                        color: 'var(--color-acid)',
+                        textDecoration: 'none',
+                        letterSpacing: '0.06em',
+                        textTransform: 'uppercase',
+                      }}
+                    >
+                      Abrir tablero →
+                    </Link>
                     {project.github_repo && (
                       <a
                         href={project.github_repo}

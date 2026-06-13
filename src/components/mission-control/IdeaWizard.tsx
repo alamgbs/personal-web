@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { saveStepData, approveStep, promoteToBacklog } from '@/app/actions/ideas'
+import { getIdeaStepAssignment, normalizeIdeaStepData } from '@/lib/mission-control/ideas'
 
 type Idea = {
   id: string
@@ -446,7 +447,11 @@ export function IdeaWizard({ idea }: Props) {
 
   const stepData = idea.step_data || {}
   const stepApprovals = idea.step_approvals || {}
-  const currentStepData = stepData[activeStep.toString()] as Record<string, unknown> | null
+  const assignment = getIdeaStepAssignment(activeStep)
+  const currentStepData = normalizeIdeaStepData(
+    activeStep,
+    stepData[activeStep.toString()] as Record<string, unknown> | null
+  )
 
   async function handleSave(data: Record<string, unknown>) {
     setSaving(true)
@@ -483,7 +488,7 @@ export function IdeaWizard({ idea }: Props) {
     if (result?.error) {
       setError(result.error)
     } else {
-      setSuccess('¡Idea promovida al backlog de desarrollo!')
+      setSuccess('Proyecto creado. Quedó pendiente únicamente la generación del PRD.')
     }
   }
 
@@ -576,7 +581,7 @@ export function IdeaWizard({ idea }: Props) {
             Paso {activeStep + 1}/9 — {STEPS[activeStep]?.label}
           </span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-text-faint)' }}>
-            {Object.keys(stepApprovals).length}/8 aprobados
+            {Object.keys(stepApprovals).length}/9 aprobados
           </span>
         </div>
       </div>
@@ -593,7 +598,7 @@ export function IdeaWizard({ idea }: Props) {
               textTransform: 'uppercase',
               color: 'var(--color-acid)',
             }}>
-              PASO {activeStep} — {STEPS[activeStep]?.label}
+              PASO {activeStep + 1} — {STEPS[activeStep]?.label}
             </span>
             {isStepApproved(activeStep) && (
               <span style={{
@@ -612,6 +617,28 @@ export function IdeaWizard({ idea }: Props) {
           <p style={{ margin: 0, fontSize: '13px', color: 'var(--color-text-faint)' }}>
             {STEPS[activeStep]?.hint}
           </p>
+          <div
+            style={{
+              marginTop: '0.75rem',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '10px',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              color: 'var(--color-text-faint)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '999px',
+              padding: '5px 10px',
+              background: 'var(--color-surface-2)',
+            }}
+          >
+            <span style={{ color: 'var(--color-acid)' }}>Assigned</span>
+            <span>{assignment.name}</span>
+            <span style={{ color: 'var(--color-border)' }}>·</span>
+            <span>@{assignment.slug}</span>
+          </div>
         </div>
 
         {isStepLocked(activeStep) ? (
@@ -700,7 +727,7 @@ export function IdeaWizard({ idea }: Props) {
                 fontWeight: 700,
               }}
             >
-              {promoting ? '...' : '🚀 Mover a Backlog de Desarrollo'}
+              {promoting ? '...' : '🚀 Crear proyecto + tarea PRD'}
             </button>
           )}
 

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { getIdeaStepAssignment, isIdeaStepComplete } from '@/lib/mission-control/ideas'
 
 export async function createQuickIdea(formData: FormData) {
   const supabase = await createClient()
@@ -78,7 +79,15 @@ export async function saveStepData(ideaId: string, step: number, data: Record<st
   if (fetchError) return { error: fetchError.message }
 
   const currentStepData = (idea?.step_data as Record<string, unknown>) || {}
-  const updated = { ...currentStepData, [step.toString()]: data }
+  const assignment = getIdeaStepAssignment(step)
+  const updated = {
+    ...currentStepData,
+    [step.toString()]: {
+      ...data,
+      assigned_agent_slug: assignment.slug,
+      assigned_agent_name: assignment.name,
+    },
+  }
 
   const { error } = await supabase
     .from('business_ideas')
@@ -99,11 +108,16 @@ export async function approveStep(ideaId: string, step: number) {
 
   const { data: idea, error: fetchError } = await supabase
     .from('business_ideas')
-    .select('step_approvals, current_step')
+    .select('step_approvals, current_step, step_data')
     .eq('id', ideaId)
     .single()
 
   if (fetchError) return { error: fetchError.message }
+
+  const stepData = ((idea?.step_data as Record<string, unknown>) || {})[step.toString()] as Record<string, unknown> | undefined
+  if (!isIdeaStepComplete(stepData)) {
+    return { error: 'Este paso está vacío. Completa el análisis del agente asignado antes de aprobarlo.' }
+  }
 
   const currentApprovals = (idea?.step_approvals as Record<string, unknown>) || {}
   const updatedApprovals = {
@@ -170,54 +184,17 @@ export async function promoteToBacklog(ideaId: string) {
   if (projectError) return { error: projectError.message }
 
   const stepSummary = JSON.stringify(stepData)
-  const backlogSeed = [
-    {
-      project_id: project.id,
-      title: `PRD · ${idea.title}`,
-      description: `Create the first PRD draft based on the approved business analysis.\n\nIdea summary:\n${idea.summary || 'No summary provided.'}\n\nStep data snapshot:\n${stepSummary}`,
-      status: 'backlog',
-      priority: 'high',
-      type: 'feature',
-      assignee_slug: 'product-lead',
-      tags: ['prd', 'product', 'idea-handoff'],
-      position: 0,
-    },
-    {
-      project_id: project.id,
-      title: `Sprint 0 plan · ${idea.title}`,
-      description: 'Break the approved idea into architecture, delivery phases, sprint goals, and iterative milestones after the PRD direction is clear.',
-      status: 'backlog',
-      priority: 'high',
-      type: 'task',
-      assignee_slug: 'dev-lead',
-      tags: ['sprint-0', 'delivery-plan', 'dev'],
-      position: 1,
-    },
-    {
-      project_id: project.id,
-      title: `UX concept · ${idea.title}`,
-      description: 'Translate the approved customer profile and journey into flows, screen hypotheses, and UX constraints for the PRD.',
-      status: 'backlog',
-      priority: 'medium',
-      type: 'task',
-      assignee_slug: 'ux-ui',
-      tags: ['ux', 'journey', 'flows'],
-      position: 2,
-    },
-    {
-      project_id: project.id,
-      title: `Validation memo · ${idea.title}`,
-      description: 'Prepare a concise market and viability recap to support product and dev decisions during sprint planning.',
-      status: 'backlog',
-      priority: 'medium',
-      type: 'task',
-      assignee_slug: 'research',
-      tags: ['research', 'validation', 'market'],
-      position: 3,
-    },
-  ]
-
-  const { error: backlogError } = await supabase.from('backlog_items').insert(backlogSeed)
+  const { error: backlogError } = await supabase.from('backlog_items').insert({
+    project_id: project.id,
+    title: `PRD · ${idea.title}`,
+    description: `Create the first PRD draft based on the approved business analysis.\n\nIdea summary:\n${idea.summary || 'No summary provided.'}\n\nStep data snapshot:\n${stepSummary}`,
+    status: 'backlog',
+    priority: 'high',
+    type: 'feature',
+    assignee_slug: 'product-lead',
+    tags: ['prd', 'product', 'idea-handoff'],
+    position: 0,
+  })
 
   if (backlogError) return { error: backlogError.message }
 
