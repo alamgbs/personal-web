@@ -2,7 +2,13 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { IDEA_STEPS } from '@/lib/mission-control/idea-steps'
 import { getIdeaStepAssignment, isIdeaStepComplete } from '@/lib/mission-control/ideas'
+import {
+  generateProjectPrd,
+  runIdeaPipelineAutomation,
+} from '@/lib/mission-control/automation'
+import { isIdeaReadyForReview } from '@/lib/mission-control/workflow'
 
 export async function createQuickIdea(formData: FormData) {
   const supabase = await createClient()
@@ -45,31 +51,64 @@ export async function updateQuickIdeaStatus(id: string, status: string) {
 export async function createBusinessIdea(formData: FormData) {
   const supabase = await createClient()
 
-  const title = formData.get('title') as string
-  const slug = title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  const title = (formData.get('title') as string)?.trim()
+  const summary = (formData.get('summary') as string)?.trim() || null
+  const notificationTarget = (formData.get('notification_target') as string)?.trim() || null
+  const intakeSource = (formData.get('intake_source') as string)?.trim() || 'manual'
+  const intakeChannel = (formData.get('intake_channel') as string)?.trim() || null
+  const autoStart = formData.get('auto_start') !== 'false'
 
-  const { error } = await supabase.from('business_ideas').insert({
-    title,
-    slug,
-    summary: formData.get('summary') as string,
-    status: 'draft',
-    current_step: 0,
-    step_data: {},
-    step_approvals: {},
-  })
+  if (!title) {
+    return { error: 'Title is required.' }
+  }
 
-  if (error) {
-    return { error: error.message }
+  const slugBase = title.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+  const slug = `${slugBase || 'idea'}-${Date.now().toString().slice(-6)}`
+
+  const { data: idea, error } = await supabase
+    .from('business_ideas')
+    .insert({
+      title,
+      slug,
+      summary,
+      status: 'in_analysis',
+      current_step: 0,
+      step_data: {},
+      step_approvals: {},
+      intake_source: intakeSource,
+      intake_channel: intakeChannel,
+      notification_target: notificationTarget,
+      workflow_stage: 'idea_pipeline',
+      automation_status: autoStart ? 'queued' : 'blocked',
+      automation_requested_at: autoStart ? new Date().toISOString() : null,
+    })
+    .select('id')
+    .single()
+
+  if (error || !idea) {
+    return { error: error?.message || 'No se pudo crear la idea.' }
+  }
+
+  if (autoStart) {
+    try {
+      await runIdeaPipelineAutomation(idea.id)
+    } catch (automationError) {
+      return {
+        error:
+          automationError instanceof Error
+            ? automationError.message
+            : 'La idea se creó, pero falló la automatización inicial.',
+      }
+    }
   }
 
   revalidatePath('/mission-control/ideas')
-  return { success: true }
+  return { success: true, idea_id: idea.id }
 }
 
 export async function saveStepData(ideaId: string, step: number, data: Record<string, unknown>) {
   const supabase = await createClient()
 
-  // Fetch current step_data
   const { data: idea, error: fetchError } = await supabase
     .from('business_ideas')
     .select('step_data')
@@ -89,11 +128,18 @@ export async function saveStepData(ideaId: string, step: number, data: Record<st
     },
   }
 
+  const workflowStage = isIdeaReadyForReview(updated) ? 'idea_review' : 'idea_pipeline'
+  const automationStatus = isIdeaReadyForReview(updated) ? 'needs_feedback' : 'running'
+
   const { error } = await supabase
     .from('business_ideas')
     .update({
       step_data: updated,
       status: 'in_analysis',
+      workflow_stage: workflowStage,
+      automation_status: automationStatus,
+      review_requested_at: workflowStage === 'idea_review' ? new Date().toISOString() : null,
+      last_automation_error: null,
     })
     .eq('id', ideaId)
 
@@ -101,6 +147,67 @@ export async function saveStepData(ideaId: string, step: number, data: Record<st
 
   revalidatePath('/mission-control/ideas')
   return { success: true }
+}
+
+export async function generateIdeaStepDraft(ideaId: string, step: number) {
+  const supabase = await createClient()
+
+  const { error: queueError } = await supabase
+    .from('business_ideas')
+    .update({
+      current_step: step,
+      workflow_stage: 'idea_pipeline',
+      automation_status: 'queued',
+      automation_requested_at: new Date().toISOString(),
+      last_automation_error: null,
+    })
+    .eq('id', ideaId)
+
+  if (queueError) {
+    return { error: queueError.message }
+  }
+
+  try {
+    await runIdeaPipelineAutomation(ideaId)
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'No se pudo generar el draft del paso.',
+    }
+  }
+
+  revalidatePath('/mission-control/ideas')
+  return {
+    success: true,
+    queued_step: step,
+    step_label: IDEA_STEPS[step]?.label || `Paso ${step + 1}`,
+  }
+}
+
+export async function generateIdeaAgentPipeline(ideaId: string) {
+  const supabase = await createClient()
+
+  const { error: queueError } = await supabase
+    .from('business_ideas')
+    .update({
+      workflow_stage: 'idea_pipeline',
+      automation_status: 'queued',
+      automation_requested_at: new Date().toISOString(),
+      last_automation_error: null,
+    })
+    .eq('id', ideaId)
+
+  if (queueError) {
+    return { error: queueError.message }
+  }
+
+  try {
+    const result = await runIdeaPipelineAutomation(ideaId)
+    return { success: true, generated_steps: 9, queued: false, workflow_stage: result.workflow_stage }
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'No se pudo ejecutar el pipeline de idea.',
+    }
+  }
 }
 
 export async function approveStep(ideaId: string, step: number) {
@@ -116,7 +223,7 @@ export async function approveStep(ideaId: string, step: number) {
 
   const stepData = ((idea?.step_data as Record<string, unknown>) || {})[step.toString()] as Record<string, unknown> | undefined
   if (!isIdeaStepComplete(stepData)) {
-    return { error: 'Este paso está vacío. Completa el análisis del agente asignado antes de aprobarlo.' }
+    return { error: 'Este paso está vacío. Espera a que la automatización complete el draft antes de aprobarlo.' }
   }
 
   const currentApprovals = (idea?.step_approvals as Record<string, unknown>) || {}
@@ -126,86 +233,73 @@ export async function approveStep(ideaId: string, step: number) {
   }
 
   const nextStep = step < 8 ? step + 1 : step
+  const isFinalStep = step === 8
 
   const { error } = await supabase
     .from('business_ideas')
     .update({
       step_approvals: updatedApprovals,
       current_step: nextStep,
+      status: isFinalStep ? 'approved' : 'in_analysis',
+      workflow_stage: isFinalStep ? 'prd_generation' : 'idea_pipeline',
+      automation_status: isFinalStep ? 'queued' : 'needs_feedback',
+      approved_for_prd_at: isFinalStep ? new Date().toISOString() : null,
+      automation_requested_at: isFinalStep ? new Date().toISOString() : null,
+      last_automation_error: null,
     })
     .eq('id', ideaId)
 
   if (error) return { error: error.message }
 
+  if (isFinalStep) {
+    try {
+      await generateProjectPrd(ideaId)
+    } catch (automationError) {
+      return {
+        error:
+          automationError instanceof Error
+            ? automationError.message
+            : 'El paso fue aprobado, pero falló la generación automática del PRD.',
+      }
+    }
+  }
+
   revalidatePath('/mission-control/ideas')
-  return { success: true }
+  revalidatePath('/mission-control/proyectos')
+  return { success: true, workflow_stage: isFinalStep ? 'prd_generation' : 'idea_pipeline' }
 }
 
 export async function promoteToBacklog(ideaId: string) {
   const supabase = await createClient()
 
-  const { data: idea, error: fetchError } = await supabase
-    .from('business_ideas')
-    .select('id, title, slug, summary, status, promoted_project_id, step_data')
-    .eq('id', ideaId)
-    .single()
-
-  if (fetchError) return { error: fetchError.message }
-
-  if (idea.promoted_project_id) {
-    return { success: true, project_id: idea.promoted_project_id }
-  }
-
-  const stepData = (idea.step_data as Record<string, unknown>) || {}
-  const projectSlug = `${idea.slug}-mc`
-  const projectDescription = [
-    idea.summary,
-    '',
-    'Origin: business idea promoted from Mission Control analysis wizard.',
-    'Current phase: PRD + sprint breakdown seed generated automatically.',
-  ]
-    .filter(Boolean)
-    .join('\n')
-
-  const { data: project, error: projectError } = await supabase
-    .from('projects')
-    .insert({
-      name: idea.title,
-      slug: projectSlug,
-      description: projectDescription,
-      status: 'active',
-      tech_stack: ['openai-codex', 'mission-control', 'tbd'],
-      github_repo: null,
-      url: null,
-    })
-    .select('id')
-    .single()
-
-  if (projectError) return { error: projectError.message }
-
-  const stepSummary = JSON.stringify(stepData)
-  const { error: backlogError } = await supabase.from('backlog_items').insert({
-    project_id: project.id,
-    title: `PRD · ${idea.title}`,
-    description: `Create the first PRD draft based on the approved business analysis.\n\nIdea summary:\n${idea.summary || 'No summary provided.'}\n\nStep data snapshot:\n${stepSummary}`,
-    status: 'backlog',
-    priority: 'high',
-    type: 'feature',
-    assignee_slug: 'product-lead',
-    tags: ['prd', 'product', 'idea-handoff'],
-    position: 0,
-  })
-
-  if (backlogError) return { error: backlogError.message }
-
   const { error } = await supabase
     .from('business_ideas')
-    .update({ status: 'in_development', promoted_project_id: project.id })
+    .update({
+      status: 'approved',
+      workflow_stage: 'prd_generation',
+      automation_status: 'queued',
+      approved_for_prd_at: new Date().toISOString(),
+      automation_requested_at: new Date().toISOString(),
+      last_automation_error: null,
+    })
     .eq('id', ideaId)
 
-  if (error) return { error: error.message }
+  if (error) {
+    return { error: error.message }
+  }
+
+  try {
+    await generateProjectPrd(ideaId)
+  } catch (automationError) {
+    return {
+      error:
+        automationError instanceof Error
+          ? automationError.message
+          : 'La idea se promovió, pero falló la generación automática del PRD.',
+    }
+  }
 
   revalidatePath('/mission-control/ideas')
   revalidatePath('/mission-control/proyectos')
-  return { success: true, project_id: project.id }
+  return { success: true }
 }

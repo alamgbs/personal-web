@@ -1,8 +1,22 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { saveStepData, approveStep, promoteToBacklog } from '@/app/actions/ideas'
+import {
+  approveStep,
+  generateIdeaAgentPipeline,
+  generateIdeaStepDraft,
+  promoteToBacklog,
+  saveStepData,
+} from '@/app/actions/ideas'
+import { IDEA_STEPS } from '@/lib/mission-control/idea-steps'
 import { getIdeaStepAssignment, normalizeIdeaStepData } from '@/lib/mission-control/ideas'
+import {
+  getAutomationStatusLabel,
+  getAutomationTone,
+  getCompletedIdeaStepCount,
+  getIdeaWorkflowStageLabel,
+  getWorkflowTone,
+} from '@/lib/mission-control/workflow'
 
 type Idea = {
   id: string
@@ -14,87 +28,16 @@ type Idea = {
   step_data: Record<string, unknown> | null
   step_approvals: Record<string, unknown> | null
   promoted_project_id?: string | null
+  workflow_stage?: string | null
+  automation_status?: string | null
+  notification_target?: string | null
 }
 
 type Props = {
   idea: Idea
 }
 
-const STEPS = [
-  {
-    label: 'Customer Profile',
-    hint: 'Define tu cliente ideal',
-    questions: [
-      '¿Quién es tu cliente? (edad, género, nivel educativo, ingreso)',
-      '¿Qué valores y motivaciones tiene?',
-      '¿Cuál es el trabajo principal que intenta realizar (job-to-be-done)?',
-      '¿Dónde vive, trabaja, consume contenido?',
-    ],
-  },
-  {
-    label: 'Customer Journey',
-    hint: 'Cómo resuelven el problema hoy',
-    questions: [
-      '¿Cuáles son los pasos que sigue actualmente para resolver el problema?',
-      '¿Qué canales o herramientas usa en cada etapa?',
-      '¿Qué emociones experimenta (frustración, confusión, alivio)?',
-      '¿Dónde están los puntos de fricción más grandes?',
-    ],
-  },
-  {
-    label: 'Problem Definition',
-    hint: 'El problema específico en 1 frase',
-    questions: [
-      'Describe el problema en UNA sola oración de impacto.',
-      '¿Por qué este problema no está bien resuelto hoy?',
-      '¿Qué consecuencias tiene para el cliente no resolver esto?',
-    ],
-  },
-  {
-    label: 'Pain Points',
-    hint: 'Lista de dolores rankeados',
-    questions: [
-      '¿Cuál es el dolor #1 más crítico?',
-      '¿Qué otros dolores secundarios existen?',
-      '¿Qué tan frecuente experimenta el cliente estos dolores?',
-      '¿Hay dolores emocionales además de funcionales?',
-    ],
-  },
-  {
-    label: 'Business Model Canvas',
-    hint: '9 bloques del modelo de negocio',
-    questions: [],
-    isBMC: true,
-  },
-  {
-    label: 'P&L Projection',
-    hint: 'Proyección financiera simplificada',
-    questions: [],
-    isPL: true,
-  },
-  {
-    label: 'Cash Flow',
-    hint: 'Flujo de caja mes a mes (12 meses)',
-    questions: [],
-    isCashFlow: true,
-  },
-  {
-    label: 'TAM / SAM / SOM',
-    hint: 'Sizing del mercado',
-    questions: [],
-    isTAM: true,
-  },
-  {
-    label: 'Go / No-Go',
-    hint: 'Decisión final',
-    questions: [
-      '¿Por qué ahora es el momento correcto para este negocio?',
-      '¿Cuáles son los 3 supuestos críticos que deben validarse primero?',
-      '¿Qué recursos mínimos necesitas para lanzar un MVP?',
-      '¿Cuál es el criterio de éxito a 6 meses?',
-    ],
-  },
-]
+const STEPS = IDEA_STEPS
 
 const BMC_BLOCKS = [
   ['Socios Clave', 'Actividades Clave', 'Propuesta de Valor'],
@@ -118,6 +61,8 @@ function StepContent({
   onSave: (data: Record<string, unknown>) => void
   saving: boolean
 }) {
+  const initialContent = (savedData as Record<string, string>)?.content || ''
+
   if (stepDef.isBMC) {
     const initialVals = (savedData as Record<string, string>) || {}
     return (
@@ -125,14 +70,15 @@ function StepContent({
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
-          const data: Record<string, string> = {}
+          const data: Record<string, string> = { content: (fd.get('content') as string) || '' }
           BMC_BLOCKS.flat().forEach((block) => {
-            data[block] = fd.get(block) as string || ''
+            data[block] = (fd.get(block) as string) || ''
           })
           onSave(data)
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
       >
+        <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
           {BMC_BLOCKS.flat().map((block) => (
             <div key={block} style={{
@@ -164,12 +110,13 @@ function StepContent({
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
-          const data: Record<string, string> = {}
-          PL_ROWS.forEach((row) => { data[row] = fd.get(row) as string || '' })
+          const data: Record<string, string> = { content: (fd.get('content') as string) || '' }
+          PL_ROWS.forEach((row) => { data[row] = (fd.get(row) as string) || '' })
           onSave(data)
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
       >
+        <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
         <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
@@ -216,15 +163,16 @@ function StepContent({
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
-          const data: Record<string, string> = {}
+          const data: Record<string, string> = { content: (fd.get('content') as string) || '' }
           MONTHS.forEach((m) => {
-            data[`in_${m}`] = fd.get(`in_${m}`) as string || ''
-            data[`out_${m}`] = fd.get(`out_${m}`) as string || ''
+            data[`in_${m}`] = (fd.get(`in_${m}`) as string) || ''
+            data[`out_${m}`] = (fd.get(`out_${m}`) as string) || ''
           })
           onSave(data)
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
       >
+        <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '11px', minWidth: '800px' }}>
             <thead>
@@ -281,6 +229,7 @@ function StepContent({
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
           onSave({
+            content: (fd.get('content') as string) || '',
             tam: fd.get('tam'),
             tam_num: fd.get('tam_num'),
             sam: fd.get('sam'),
@@ -292,6 +241,7 @@ function StepContent({
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
       >
+        <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
         {[
           { key: 'tam', label: 'TAM — Total Addressable Market', color: 'var(--color-acid)' },
           { key: 'sam', label: 'SAM — Serviceable Addressable Market', color: 'var(--color-coral)' },
@@ -357,7 +307,7 @@ function StepContent({
   }
 
   // Default: text step with guided questions
-  const initialVal = (savedData as Record<string, string>)?.content || ''
+  const initialVal = initialContent
   return (
     <form
       onSubmit={(e) => {
@@ -405,6 +355,24 @@ function StepContent({
   )
 }
 
+function AgentDraftField({ defaultValue, stepLabel }: { defaultValue: string; stepLabel: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <label style={bmcLabelStyle}>Draft del agente para {stepLabel}</label>
+      <textarea
+        name="content"
+        defaultValue={defaultValue}
+        rows={8}
+        placeholder={`Análisis del agente para ${stepLabel}...`}
+        style={{
+          ...textareaStyle,
+          minHeight: '180px',
+        }}
+      />
+    </div>
+  )
+}
+
 function btnRow(saving: boolean) {
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -435,6 +403,8 @@ export function IdeaWizard({ idea }: Props) {
   const [saving, setSaving] = useState(false)
   const [approving, setApproving] = useState(false)
   const [promoting, setPromoting] = useState(false)
+  const [runningAgent, setRunningAgent] = useState(false)
+  const [runningPipeline, setRunningPipeline] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
 
@@ -451,7 +421,8 @@ export function IdeaWizard({ idea }: Props) {
   const currentStepData = normalizeIdeaStepData(
     activeStep,
     stepData[activeStep.toString()] as Record<string, unknown> | null
-  )
+  ) as Record<string, unknown> | null
+  const currentStepMeta = (currentStepData || {}) as Record<string, unknown>
 
   async function handleSave(data: Record<string, unknown>) {
     setSaving(true)
@@ -466,6 +437,42 @@ export function IdeaWizard({ idea }: Props) {
     }
   }
 
+  async function handleRunAssignedAgent() {
+    setRunningAgent(true)
+    setError(null)
+    setSuccess(null)
+    const result = await generateIdeaStepDraft(idea.id, activeStep)
+    setRunningAgent(false)
+    const agentError = result && 'error' in result ? result.error : null
+    if (agentError) {
+      setError(agentError)
+      return
+    }
+
+    setSuccess(`${assignment.name} completó el borrador del paso ${activeStep + 1}.`)
+    setTimeout(() => setSuccess(null), 3000)
+  }
+
+  async function handleRunIdeaPipeline() {
+    setRunningPipeline(true)
+    setError(null)
+    setSuccess(null)
+    const result = await generateIdeaAgentPipeline(idea.id)
+    setRunningPipeline(false)
+    const pipelineError = result && 'error' in result ? result.error : null
+    if (pipelineError) {
+      setError(pipelineError)
+      return
+    }
+
+    setSuccess(
+      result?.generated_steps
+        ? `Se ejecutaron ${result.generated_steps} pasos pendientes del pipeline.`
+        : 'La idea ya tenía todos los pasos con contenido.'
+    )
+    setTimeout(() => setSuccess(null), 4000)
+  }
+
   async function handleApprove() {
     setApproving(true)
     setError(null)
@@ -474,7 +481,7 @@ export function IdeaWizard({ idea }: Props) {
     if (result?.error) {
       setError(result.error)
     } else {
-      setSuccess(`Paso ${activeStep} aprobado`)
+      setSuccess(`Paso ${activeStep + 1} aprobado`)
       if (activeStep < 8) setActiveStep(activeStep + 1)
       setTimeout(() => setSuccess(null), 3000)
     }
@@ -488,7 +495,7 @@ export function IdeaWizard({ idea }: Props) {
     if (result?.error) {
       setError(result.error)
     } else {
-      setSuccess('Proyecto creado. Quedó pendiente únicamente la generación del PRD.')
+      setSuccess('Proyecto creado. Mission Control generará el PRD automáticamente.')
     }
   }
 
@@ -496,6 +503,9 @@ export function IdeaWizard({ idea }: Props) {
   const isStepLocked = (step: number) => step > 0 && !isStepApproved(step - 1)
 
   const status = idea.status || 'draft'
+  const workflowTone = getWorkflowTone(idea.workflow_stage)
+  const automationTone = getAutomationTone(idea.automation_status)
+  const completedSteps = getCompletedIdeaStepCount(idea.step_data)
 
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -522,9 +532,22 @@ export function IdeaWizard({ idea }: Props) {
                 {idea.summary}
               </p>
             )}
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '10px' }}>
+              <span style={{ ...workflowPillStyle, color: workflowTone.color, background: workflowTone.background }}>
+                {getIdeaWorkflowStageLabel(idea.workflow_stage)}
+              </span>
+              <span style={{ ...workflowPillStyle, color: automationTone.color, background: automationTone.background }}>
+                {getAutomationStatusLabel(idea.automation_status)}
+              </span>
+              {idea.notification_target && (
+                <span style={workflowMutedPillStyle}>
+                  notify → {idea.notification_target}
+                </span>
+              )}
+            </div>
             {idea.promoted_project_id && (
               <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#60a5fa', fontFamily: 'var(--font-mono)' }}>
-                Proyecto seed creado y enviado a /mission-control/proyectos.
+                Proyecto creado y sincronizado con el flujo de PRD/planning.
               </p>
             )}
           </div>
@@ -581,7 +604,7 @@ export function IdeaWizard({ idea }: Props) {
             Paso {activeStep + 1}/9 — {STEPS[activeStep]?.label}
           </span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-text-faint)' }}>
-            {Object.keys(stepApprovals).length}/9 aprobados
+            {Object.keys(stepApprovals).length}/9 aprobados · {completedSteps}/9 drafts completos
           </span>
         </div>
       </div>
@@ -639,6 +662,31 @@ export function IdeaWizard({ idea }: Props) {
             <span style={{ color: 'var(--color-border)' }}>·</span>
             <span>@{assignment.slug}</span>
           </div>
+
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '1rem' }}>
+            <button
+              type="button"
+              onClick={handleRunAssignedAgent}
+              disabled={runningAgent || isStepLocked(activeStep)}
+              style={secondaryActionButtonStyle}
+            >
+              {runningAgent ? 'Ejecutando agente...' : `▶ Ejecutar ${assignment.name}`}
+            </button>
+            <button
+              type="button"
+              onClick={handleRunIdeaPipeline}
+              disabled={runningPipeline}
+              style={secondaryGhostButtonStyle}
+            >
+              {runningPipeline ? 'Corriendo pipeline...' : '▶ Ejecutar pipeline completo'}
+            </button>
+          </div>
+
+          {Boolean(currentStepMeta.generated_at) && (
+            <div style={{ marginTop: '0.85rem', fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-text-faint)' }}>
+              Último draft: {String(currentStepMeta.generated_by_name || currentStepMeta.assigned_agent_name || assignment.name)} · {String(currentStepMeta.generation_model || 'modelo no especificado')} · {new Date(String(currentStepMeta.generated_at)).toLocaleString('es-MX')}
+            </div>
+          )}
         </div>
 
         {isStepLocked(activeStep) ? (
@@ -824,6 +872,47 @@ const approveStyle: React.CSSProperties = {
   padding: '7px 16px',
   cursor: 'pointer',
   fontWeight: 700,
+}
+
+const secondaryActionButtonStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '11px',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  background: 'rgba(214,255,63,0.12)',
+  color: 'var(--color-acid)',
+  border: '1px solid var(--color-acid)',
+  borderRadius: '6px',
+  padding: '8px 14px',
+  cursor: 'pointer',
+}
+
+const secondaryGhostButtonStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '11px',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  background: 'transparent',
+  color: 'var(--color-text)',
+  border: '1px solid var(--color-border)',
+  borderRadius: '6px',
+  padding: '8px 14px',
+  cursor: 'pointer',
+}
+
+const workflowPillStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '9px',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  borderRadius: '999px',
+  padding: '3px 8px',
+}
+
+const workflowMutedPillStyle: React.CSSProperties = {
+  ...workflowPillStyle,
+  color: 'var(--color-text-faint)',
+  background: 'rgba(107,103,98,0.12)',
 }
 
 const nextStyle: React.CSSProperties = {

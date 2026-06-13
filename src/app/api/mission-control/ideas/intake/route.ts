@@ -1,0 +1,86 @@
+import { NextResponse } from 'next/server'
+import { runIdeaPipelineAutomation } from '@/lib/mission-control/automation'
+import { createAdminClient } from '@/lib/supabase/admin'
+
+type IntakePayload = {
+  title?: string
+  summary?: string
+  notificationTarget?: string
+  intakeSource?: string
+  intakeChannel?: string
+  autoStart?: boolean
+}
+
+function slugify(input: string) {
+  return input.toLowerCase().trim().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+}
+
+export async function POST(request: Request) {
+  const token = process.env.MISSION_CONTROL_AUTOMATION_TOKEN
+
+  if (token) {
+    const authHeader = request.headers.get('authorization')
+    if (authHeader !== `Bearer ${token}`) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+  }
+
+  let payload: IntakePayload
+  try {
+    payload = (await request.json()) as IntakePayload
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
+  }
+
+  const title = payload.title?.trim()
+  if (!title) {
+    return NextResponse.json({ error: 'title is required.' }, { status: 400 })
+  }
+
+  const supabase = createAdminClient()
+  const slugBase = slugify(title)
+  const slug = `${slugBase || 'idea'}-${Date.now().toString().slice(-6)}`
+
+  const { data, error } = await supabase
+    .from('business_ideas')
+    .insert({
+      title,
+      slug,
+      summary: payload.summary?.trim() || null,
+      status: 'in_analysis',
+      current_step: 0,
+      step_data: {},
+      step_approvals: {},
+      intake_source: payload.intakeSource || 'discord',
+      intake_channel: payload.intakeChannel || null,
+      notification_target: payload.notificationTarget || null,
+      workflow_stage: 'idea_pipeline',
+      automation_status: payload.autoStart === false ? 'blocked' : 'queued',
+      automation_requested_at: payload.autoStart === false ? null : new Date().toISOString(),
+    })
+    .select('id, title, slug, workflow_stage, automation_status')
+    .single()
+
+  if (error || !data) {
+    return NextResponse.json({ error: error?.message || 'No se pudo crear la idea.' }, { status: 500 })
+  }
+
+  if (payload.autoStart !== false) {
+    try {
+      await runIdeaPipelineAutomation(data.id)
+    } catch (automationError) {
+      return NextResponse.json(
+        {
+          error:
+            automationError instanceof Error
+              ? automationError.message
+              : 'La idea se creó, pero falló la automatización inicial.',
+          idea: data,
+        },
+        { status: 500 }
+      )
+    }
+  }
+
+  return NextResponse.json({ success: true, idea: data })
+}

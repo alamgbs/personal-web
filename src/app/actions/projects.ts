@@ -2,6 +2,13 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import {
+  approvePlanningAndSeedSprint,
+  approveProjectSprintReview,
+  generateProjectPlanning,
+  requestProjectSprintReview,
+  startProjectSprint,
+} from '@/lib/mission-control/automation'
 
 export async function createProject(formData: FormData) {
   const supabase = await createClient()
@@ -104,71 +111,16 @@ export async function approveProjectPrd(projectId: string) {
 
   const { data: project, error: projectError } = await supabase
     .from('projects')
-    .select('id, name, slug, prd_status')
+    .select('id, slug, prd_markdown')
     .eq('id', projectId)
     .single()
 
-  if (projectError) {
-    return { error: projectError.message }
+  if (projectError || !project) {
+    return { error: projectError?.message || 'Proyecto no encontrado.' }
   }
 
-  if (project.prd_status === 'approved') {
-    return { success: true }
-  }
-
-  const downstreamItems = [
-    {
-      project_id: project.id,
-      title: `Sprint 0 plan · ${project.name}`,
-      description: 'Dev Lead desglosa arquitectura, sprints, entregables iterativos, riesgos y secuencia de ejecución después de la aprobación del PRD.',
-      status: 'backlog',
-      priority: 'high',
-      type: 'task',
-      assignee_slug: 'dev-lead',
-      tags: ['sprint-0', 'delivery-plan', 'dev'],
-      position: 1,
-    },
-    {
-      project_id: project.id,
-      title: `UX concept · ${project.name}`,
-      description: 'UX/UI aterriza flujos, pantallas y restricciones del MVP ya alineado al PRD aprobado.',
-      status: 'backlog',
-      priority: 'medium',
-      type: 'task',
-      assignee_slug: 'ux-ui',
-      tags: ['ux', 'journey', 'mvp'],
-      position: 2,
-    },
-    {
-      project_id: project.id,
-      title: `Validation memo · ${project.name}`,
-      description: 'Research arma memo de benchmark, riesgos y métricas a vigilar durante sprint planning.',
-      status: 'backlog',
-      priority: 'medium',
-      type: 'task',
-      assignee_slug: 'research',
-      tags: ['research', 'validation', 'market'],
-      position: 3,
-    },
-  ]
-
-  const { data: existingItems, error: existingError } = await supabase
-    .from('backlog_items')
-    .select('title')
-    .eq('project_id', project.id)
-
-  if (existingError) {
-    return { error: existingError.message }
-  }
-
-  const existingTitles = new Set((existingItems || []).map((item) => item.title))
-  const itemsToInsert = downstreamItems.filter((item) => !existingTitles.has(item.title))
-
-  if (itemsToInsert.length > 0) {
-    const { error: insertError } = await supabase.from('backlog_items').insert(itemsToInsert)
-    if (insertError) {
-      return { error: insertError.message }
-    }
+  if (!project.prd_markdown?.trim()) {
+    return { error: 'El PRD todavía no fue generado. Espera a que Mission Control complete el draft.' }
   }
 
   const { error: updateError } = await supabase
@@ -176,6 +128,7 @@ export async function approveProjectPrd(projectId: string) {
     .update({
       prd_status: 'approved',
       prd_approved_at: new Date().toISOString(),
+      execution_status: 'planning_generation',
       delivery_status: 'planning',
       updated_at: new Date().toISOString(),
     })
@@ -185,7 +138,75 @@ export async function approveProjectPrd(projectId: string) {
     return { error: updateError.message }
   }
 
+  const { data: idea } = await supabase
+    .from('business_ideas')
+    .select('id')
+    .eq('promoted_project_id', project.id)
+    .single()
+
+  if (idea?.id) {
+    await supabase
+      .from('business_ideas')
+      .update({
+        workflow_stage: 'planning_generation',
+        automation_status: 'queued',
+        automation_requested_at: new Date().toISOString(),
+      })
+      .eq('id', idea.id)
+  }
+
+  try {
+    await generateProjectPlanning(project.id)
+  } catch (automationError) {
+    return {
+      error:
+        automationError instanceof Error
+          ? automationError.message
+          : 'El PRD fue aprobado, pero falló la generación automática del planning.',
+    }
+  }
+
   revalidatePath('/mission-control/proyectos')
   revalidatePath(`/mission-control/proyectos/${project.slug}`)
   return { success: true }
+}
+
+export async function approveProjectPlanning(projectId: string) {
+  try {
+    return await approvePlanningAndSeedSprint(projectId)
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'No se pudo aprobar el planning.',
+    }
+  }
+}
+
+export async function beginProjectSprint(projectId: string) {
+  try {
+    return await startProjectSprint(projectId)
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'No se pudo iniciar el sprint.',
+    }
+  }
+}
+
+export async function submitProjectSprintReview(projectId: string) {
+  try {
+    return await requestProjectSprintReview(projectId)
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'No se pudo preparar el sprint review.',
+    }
+  }
+}
+
+export async function approveProjectSprint(projectId: string) {
+  try {
+    return await approveProjectSprintReview(projectId)
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'No se pudo aprobar el sprint review.',
+    }
+  }
 }

@@ -2,6 +2,13 @@
 
 import { useState } from 'react'
 import { createBusinessIdea } from '@/app/actions/ideas'
+import {
+  getAutomationStatusLabel,
+  getAutomationTone,
+  getCompletedIdeaStepCount,
+  getIdeaWorkflowStageLabel,
+  getWorkflowTone,
+} from '@/lib/mission-control/workflow'
 
 type Idea = {
   id: string
@@ -12,6 +19,8 @@ type Idea = {
   current_step: number | null
   step_data: Record<string, unknown> | null
   step_approvals: Record<string, unknown> | null
+  workflow_stage?: string | null
+  automation_status?: string | null
 }
 
 type Props = {
@@ -58,14 +67,13 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
 
   return (
     <div style={{
-      width: '288px',
+      width: '320px',
       flexShrink: 0,
       borderRight: '1px solid var(--color-border)',
       height: '100%',
       display: 'flex',
       flexDirection: 'column',
     }}>
-      {/* Header */}
       <div style={{
         padding: '1.25rem',
         borderBottom: '1px solid var(--color-border)',
@@ -107,7 +115,6 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
         </button>
       </div>
 
-      {/* New idea form */}
       {showNewForm && (
         <form
           onSubmit={handleCreateIdea}
@@ -120,6 +127,7 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
             background: 'var(--color-surface-2)',
           }}
         >
+          <input type="hidden" name="auto_start" value="true" />
           <div>
             <label style={labelStyle}>Título</label>
             <input
@@ -138,6 +146,14 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
               style={{ ...inputStyle, resize: 'vertical' }}
             />
           </div>
+          <div>
+            <label style={labelStyle}>Target de notificación</label>
+            <input
+              name="notification_target"
+              placeholder="discord:alamgbs o telegram:..."
+              style={inputStyle}
+            />
+          </div>
           {error && (
             <div style={{ color: 'var(--color-coral)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}>
               ✗ {error}
@@ -152,7 +168,6 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
         </form>
       )}
 
-      {/* Ideas list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0.5rem 0' }}>
         {ideas.length === 0 ? (
           <div style={{
@@ -170,6 +185,9 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
             const step = idea.current_step ?? 0
             const status = idea.status || 'draft'
             const isSelected = idea.id === selectedId
+            const workflowTone = getWorkflowTone(idea.workflow_stage)
+            const automationTone = getAutomationTone(idea.automation_status)
+            const completedSteps = getCompletedIdeaStepCount(idea.step_data)
 
             return (
               <button
@@ -177,7 +195,7 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
                 onClick={() => onSelect(idea.id)}
                 style={{
                   width: '100%',
-                  padding: '0.75rem 1rem',
+                  padding: '0.85rem 1rem',
                   background: isSelected ? 'var(--color-surface-2)' : 'transparent',
                   border: 'none',
                   borderLeft: isSelected ? '2px solid var(--color-acid)' : '2px solid transparent',
@@ -185,7 +203,7 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
                   cursor: 'pointer',
                   display: 'flex',
                   flexDirection: 'column',
-                  gap: '6px',
+                  gap: '8px',
                   transition: 'background 0.15s',
                 }}
                 onMouseEnter={(e) => {
@@ -205,7 +223,7 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
                   {idea.title}
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                   <span style={{
                     fontFamily: 'var(--font-mono)',
                     fontSize: '9px',
@@ -223,11 +241,19 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
                     fontSize: '10px',
                     color: 'var(--color-text-faint)',
                   }}>
-                    paso {step}/8
+                    {completedSteps}/9 steps
                   </span>
                 </div>
 
-                {/* Progress bar */}
+                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                  <span style={{ ...tinyPillStyle, color: workflowTone.color, background: workflowTone.background }}>
+                    {getIdeaWorkflowStageLabel(idea.workflow_stage)}
+                  </span>
+                  <span style={{ ...tinyPillStyle, color: automationTone.color, background: automationTone.background }}>
+                    {getAutomationStatusLabel(idea.automation_status)}
+                  </span>
+                </div>
+
                 <div style={{
                   height: '2px',
                   background: 'var(--color-surface-3)',
@@ -236,11 +262,15 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
                 }}>
                   <div style={{
                     height: '100%',
-                    width: `${(step / 8) * 100}%`,
+                    width: `${(completedSteps / 9) * 100}%`,
                     background: 'var(--color-acid)',
                     borderRadius: '2px',
                     transition: 'width 0.3s',
                   }} />
+                </div>
+
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: '9px', color: 'var(--color-text-faint)' }}>
+                  paso activo {step + 1}
                 </div>
               </button>
             )
@@ -258,7 +288,7 @@ const labelStyle: React.CSSProperties = {
   letterSpacing: '0.08em',
   textTransform: 'uppercase',
   color: 'var(--color-text-faint)',
-  marginBottom: '3px',
+  marginBottom: '4px',
 }
 
 const inputStyle: React.CSSProperties = {
@@ -266,33 +296,42 @@ const inputStyle: React.CSSProperties = {
   background: 'var(--color-surface-1)',
   border: '1px solid var(--color-border)',
   borderRadius: '4px',
-  padding: '6px 8px',
+  padding: '8px 10px',
   color: 'var(--color-text)',
+  fontSize: '13px',
   fontFamily: 'var(--font-body)',
-  fontSize: '12px',
 }
 
 const submitStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-mono)',
-  fontSize: '10px',
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
   background: 'var(--color-acid)',
   color: 'var(--color-bg)',
   border: 'none',
   borderRadius: '4px',
-  padding: '5px 12px',
+  padding: '7px 12px',
   cursor: 'pointer',
+  fontFamily: 'var(--font-mono)',
+  fontSize: '10px',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
   fontWeight: 700,
 }
 
 const cancelStyle: React.CSSProperties = {
-  fontFamily: 'var(--font-mono)',
-  fontSize: '11px',
   background: 'transparent',
   color: 'var(--color-text-faint)',
   border: '1px solid var(--color-border)',
   borderRadius: '4px',
-  padding: '5px 10px',
+  padding: '7px 10px',
   cursor: 'pointer',
+  fontFamily: 'var(--font-mono)',
+  fontSize: '10px',
+}
+
+const tinyPillStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '9px',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  padding: '2px 6px',
+  borderRadius: '999px',
 }
