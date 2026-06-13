@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { deleteIdeaGraph } from '@/lib/mission-control/idea-deletion'
 import { FINAL_IDEA_STEP_INDEX, IDEA_STEPS, TOTAL_IDEA_STEPS } from '@/lib/mission-control/idea-steps'
 import { getIdeaStepAssignment, isIdeaStepComplete } from '@/lib/mission-control/ideas'
 import { generateProjectPrd, queueIdeaPipelineAutomation } from '@/lib/mission-control/automation'
@@ -294,6 +295,108 @@ export async function promoteToBacklog(ideaId: string) {
         automationError instanceof Error
           ? automationError.message
           : 'La idea se promovió, pero falló la generación automática del PRD.',
+    }
+  }
+
+  revalidatePath('/mission-control/ideas')
+  revalidatePath('/mission-control/proyectos')
+  return { success: true }
+}
+
+export async function deleteBusinessIdea(ideaId: string) {
+  const supabase = await createClient()
+
+  try {
+    await deleteIdeaGraph(
+      {
+        async getIdea(id) {
+          const { data, error } = await supabase
+            .from('business_ideas')
+            .select('id, promoted_project_id')
+            .eq('id', id)
+            .single()
+
+          if (error) throw new Error(error.message)
+
+          return data
+            ? {
+                id: data.id,
+                promotedProjectId: data.promoted_project_id,
+              }
+            : null
+        },
+        async getProjectsBySourceIdea(id) {
+          const { data, error } = await supabase
+            .from('projects')
+            .select('id')
+            .eq('source_idea_id', id)
+
+          if (error) throw new Error(error.message)
+
+          return (data || []).map((project) => project.id)
+        },
+        async clearQuickIdeaProjectRefs(projectIds) {
+          const { error } = await supabase
+            .from('quick_ideas')
+            .update({ promoted_to_project_id: null, updated_at: new Date().toISOString() })
+            .in('promoted_to_project_id', projectIds)
+
+          if (error) throw new Error(error.message)
+        },
+        async clearQuickIdeaIdeaRefs(id) {
+          const { error } = await supabase
+            .from('quick_ideas')
+            .update({ promoted_to_idea_id: null, updated_at: new Date().toISOString() })
+            .eq('promoted_to_idea_id', id)
+
+          if (error) throw new Error(error.message)
+        },
+        async clearBusinessIdeaProjectRefs(projectIds) {
+          const { error } = await supabase
+            .from('business_ideas')
+            .update({ promoted_project_id: null, updated_at: new Date().toISOString() })
+            .in('promoted_project_id', projectIds)
+
+          if (error) throw new Error(error.message)
+        },
+        async deleteBacklogItems(projectIds) {
+          const { error } = await supabase
+            .from('backlog_items')
+            .delete()
+            .in('project_id', projectIds)
+
+          if (error) throw new Error(error.message)
+        },
+        async deleteProjectSprints(projectIds) {
+          const { error } = await supabase
+            .from('project_sprints')
+            .delete()
+            .in('project_id', projectIds)
+
+          if (error) throw new Error(error.message)
+        },
+        async deleteProjects(projectIds) {
+          const { error } = await supabase
+            .from('projects')
+            .delete()
+            .in('id', projectIds)
+
+          if (error) throw new Error(error.message)
+        },
+        async deleteIdea(id) {
+          const { error } = await supabase
+            .from('business_ideas')
+            .delete()
+            .eq('id', id)
+
+          if (error) throw new Error(error.message)
+        },
+      },
+      ideaId
+    )
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : 'No se pudo eliminar la idea.',
     }
   }
 

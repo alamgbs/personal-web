@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import {
   approveStep,
+  deleteBusinessIdea,
   generateIdeaAgentPipeline,
   generateIdeaStepDraft,
   promoteToBacklog,
@@ -403,17 +404,12 @@ export function IdeaWizard({ idea }: Props) {
   const [saving, setSaving] = useState(false)
   const [approving, setApproving] = useState(false)
   const [promoting, setPromoting] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const [runningAgent, setRunningAgent] = useState(false)
   const [runningPipeline, setRunningPipeline] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
-
-  // Reset when idea changes
-  useEffect(() => {
-    setActiveStep(idea.current_step ?? 0)
-    setError(null)
-    setSuccess(null)
-  }, [idea.id, idea.current_step])
 
   const stepData = idea.step_data || {}
   const stepApprovals = idea.step_approvals || {}
@@ -499,6 +495,22 @@ export function IdeaWizard({ idea }: Props) {
     }
   }
 
+  async function handleDeleteIdea() {
+    setDeleting(true)
+    setError(null)
+    setSuccess(null)
+    const result = await deleteBusinessIdea(idea.id)
+    setDeleting(false)
+
+    if (result?.error) {
+      setError(result.error)
+      return
+    }
+
+    setConfirmDeleteOpen(false)
+    setSuccess('Idea eliminada junto con sus elementos relacionados.')
+  }
+
   const isStepApproved = (step: number) => !!stepApprovals[step.toString()]
   const isStepLocked = (step: number) => step > 0 && !isStepApproved(step - 1)
 
@@ -551,20 +563,33 @@ export function IdeaWizard({ idea }: Props) {
               </p>
             )}
           </div>
-          <span style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: '10px',
-            letterSpacing: '0.1em',
-            textTransform: 'uppercase',
-            padding: '4px 10px',
-            borderRadius: '4px',
-            background: statusBg(status),
-            color: statusColor(status),
-            flexShrink: 0,
-            marginLeft: '16px',
-          }}>
-            {status.replace('_', ' ')}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginLeft: '16px', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null)
+                setSuccess(null)
+                setConfirmDeleteOpen(true)
+              }}
+              disabled={deleting}
+              style={dangerGhostButtonStyle}
+            >
+              {deleting ? 'Eliminando...' : 'Eliminar idea'}
+            </button>
+            <span style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: '10px',
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              padding: '4px 10px',
+              borderRadius: '4px',
+              background: statusBg(status),
+              color: statusColor(status),
+              flexShrink: 0,
+            }}>
+              {status.replace('_', ' ')}
+            </span>
+          </div>
         </div>
 
         {/* Steps progress bar */}
@@ -799,6 +824,43 @@ export function IdeaWizard({ idea }: Props) {
           )}
         </div>
       </div>
+
+      {confirmDeleteOpen && (
+        <div style={modalOverlayStyle}>
+          <div style={modalCardStyle}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.14em', textTransform: 'uppercase', color: 'var(--color-coral)', marginBottom: '8px' }}>
+              Confirmación
+            </div>
+            <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontSize: '1.15rem', color: 'var(--color-text)' }}>
+              ¿Estás seguro?
+            </h3>
+            <p style={{ margin: '10px 0 0', color: 'var(--color-text-faint)', fontSize: '13px', lineHeight: 1.6 }}>
+              Esto eliminará la idea y todo lo relacionado: proyecto promovido, backlog, sprints y referencias vinculadas.
+            </p>
+            <div style={{ marginTop: '14px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(255,106,61,0.08)', border: '1px solid rgba(255,106,61,0.2)', fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text)' }}>
+              {idea.title}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '18px' }}>
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteOpen(false)}
+                disabled={deleting}
+                style={modalCancelButtonStyle}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteIdea}
+                disabled={deleting}
+                style={modalDeleteButtonStyle}
+              >
+                {deleting ? 'Eliminando...' : 'Sí, eliminar todo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -926,4 +988,65 @@ const nextStyle: React.CSSProperties = {
   borderRadius: '4px',
   padding: '7px 16px',
   cursor: 'pointer',
+}
+
+const dangerGhostButtonStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '10px',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  background: 'rgba(255,106,61,0.08)',
+  color: 'var(--color-coral)',
+  border: '1px solid rgba(255,106,61,0.35)',
+  borderRadius: '6px',
+  padding: '7px 12px',
+  cursor: 'pointer',
+}
+
+const modalOverlayStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(12,12,10,0.78)',
+  backdropFilter: 'blur(8px)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '24px',
+  zIndex: 50,
+}
+
+const modalCardStyle: React.CSSProperties = {
+  width: 'min(460px, 100%)',
+  background: 'var(--color-surface-1)',
+  border: '1px solid var(--color-border)',
+  borderRadius: '14px',
+  boxShadow: '0 24px 80px rgba(0,0,0,0.45)',
+  padding: '22px',
+}
+
+const modalCancelButtonStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '11px',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  background: 'transparent',
+  color: 'var(--color-text-faint)',
+  border: '1px solid var(--color-border)',
+  borderRadius: '6px',
+  padding: '8px 14px',
+  cursor: 'pointer',
+}
+
+const modalDeleteButtonStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '11px',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  background: 'var(--color-coral)',
+  color: '#fff',
+  border: 'none',
+  borderRadius: '6px',
+  padding: '8px 14px',
+  cursor: 'pointer',
+  fontWeight: 700,
 }

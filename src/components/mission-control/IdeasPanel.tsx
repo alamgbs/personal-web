@@ -24,7 +24,8 @@ export function IdeasPanel({ ideas }: Props) {
     ideas.length > 0 ? ideas[0].id : null
   )
 
-  const selectedIdea = ideas.find((i) => i.id === selectedId) || null
+  const selectedIdea = ideas.find((i) => i.id === selectedId) || ideas[0] || null
+  const resolvedSelectedId = selectedIdea?.id || null
 
   return (
     <div style={{
@@ -34,13 +35,13 @@ export function IdeasPanel({ ideas }: Props) {
     }}>
       <IdeaList
         ideas={ideas}
-        selectedId={selectedId}
+        selectedId={resolvedSelectedId}
         onSelect={setSelectedId}
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflowY: 'auto' }}>
         {selectedIdea ? (
-          <IdeaWizard idea={selectedIdea} />
+          <IdeaWizard key={selectedIdea.id} idea={selectedIdea} />
         ) : (
           <div style={{
             flex: 1,
