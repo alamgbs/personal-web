@@ -10,25 +10,56 @@ const JOURNEY = [
   { id: 'ceragon', period: '2025–hoy',  type: 'WORK', org: 'Ceragon',                  role: 'PMO Manager LATAM',       loc: 'Asunción PY',   desc: 'Implementación y coordinación de proyectos de telecomunicaciones B2B en toda la región.' },
 ] as const
 
-type JourneyItem = typeof JOURNEY[number]
-
 const TYPE_COLOR: Record<string, string> = {
   EDU:  'var(--color-acid, #d6ff3f)',
   WORK: 'var(--color-coral, #ff6a3d)',
 }
 
-/* Year milestones between nodes — purely decorative */
-const MILESTONES = [
-  { label: 'Primera startup',  x_offset: 0.3 },
-  { label: 'Heidelberg',       x_offset: 0.5 },
-  { label: 'Datos & ML',       x_offset: 0.7 },
-  { label: 'RPA & GEE',        x_offset: 0.9 },
+/* ── Project milestones — small secondary dots on the timeline ── */
+const PROJECT_MILESTONES = [
+  { id: 'nlp-m',      year: 2018, label: 'NLP & Sentiment'    },
+  { id: 'uheal-m',    year: 2020, label: 'Uhueal'             },
+  { id: 'prop-m',     year: 2020, label: 'PropSpace'          },
+  { id: 'rutas-m',    year: 2021, label: 'Rutas Reparto'      },
+  { id: 'canna-m',    year: 2021, label: 'CBD Extracción'     },
+  { id: 'rpa-m',      year: 2022, label: 'Clasif. Clientes'   },
+  { id: 'bigdata-m',  year: 2022, label: 'Big Data Olist'     },
+  { id: 'tudu-m',     year: 2024, label: 'TUDU App'           },
+  { id: 'l2o-m',      year: 2024, label: 'Lead-to-Cash'       },
+  { id: 'abast-m',    year: 2024, label: 'Abastecimiento'     },
+  { id: 'asugreen-m', year: 2025, label: 'ASUGREEN'           },
+  { id: 'obras-m',    year: 2025, label: 'Gestión Obras'      },
+  { id: 'kapi-m',     year: 2026, label: 'KAPI'               },
 ]
 
-const CARD_W         = 240
-const SPACING        = 520   // 280 → 520 for 3× more breathing room
-const TRACK_PAD_LEFT = 160
-const TRACK_PAD_RIGHT = 900  // 480 → 900
+const CARD_W          = 240
+const SPACING         = 520
+const TRACK_PAD_LEFT  = 160
+const TRACK_PAD_RIGHT = 900
+
+/* Year → x mapping: 2017 anchors to first journey node, 2026 to NOW dot */
+const YEAR_START = 2017
+const YEAR_END   = 2026
+const X_JOURNEY_START = TRACK_PAD_LEFT + 480                              // 640
+const X_NOW           = TRACK_PAD_LEFT + 480 + 5 * SPACING + 60           // 3300
+
+function yearToX(year: number): number {
+  return X_JOURNEY_START + ((year - YEAR_START) / (YEAR_END - YEAR_START)) * (X_NOW - X_JOURNEY_START)
+}
+
+/* Pre-compute milestone x positions, staggering same-year items */
+const milestonePositions = (() => {
+  const groups: Record<number, number> = {}
+  const counts: Record<number, number> = {}
+  PROJECT_MILESTONES.forEach(m => { counts[m.year] = (counts[m.year] || 0) + 1 })
+  return PROJECT_MILESTONES.map(m => {
+    const idx = groups[m.year] ?? 0
+    groups[m.year] = idx + 1
+    const total  = counts[m.year]
+    const offset = (idx - (total - 1) / 2) * 34
+    return { ...m, x: yearToX(m.year) + offset }
+  })
+})()
 
 export default function TimelineSection() {
   const sectionRef = useRef<HTMLDivElement>(null)
@@ -66,7 +97,7 @@ export default function TimelineSection() {
     }
   }, [trackWidth])
 
-  const lineY = 50 // % — center
+  const lineY = 50 // %
 
   return (
     <section
@@ -74,7 +105,7 @@ export default function TimelineSection() {
       id="tray"
       style={{
         position:   'relative',
-        height:     '1200vh',  // 400 → 1200 (3×)
+        height:     '1200vh',
         background: 'var(--color-bg, #0c0c0a)',
       }}
     >
@@ -87,7 +118,7 @@ export default function TimelineSection() {
           overflow: 'hidden',
         }}
       >
-        {/* Section-level scroll progress bar */}
+        {/* Section scroll progress bar */}
         <div
           style={{
             position:   'absolute',
@@ -169,23 +200,66 @@ export default function TimelineSection() {
             transform:  'translateY(-50%)',
           }} />
 
-          {/* Tick marks along the line every ~160px */}
+          {/* Tick marks */}
           {Array.from({ length: Math.floor(trackWidth / 160) }).map((_, i) => (
             <div
               key={i}
               style={{
-                position:  'absolute',
-                left:      i * 160 + TRACK_PAD_LEFT,
-                top:       lineY + '%',
-                transform: 'translate(-50%, -50%)',
-                width:     1,
-                height:    i % 5 === 0 ? 12 : 6,
+                position:   'absolute',
+                left:       i * 160 + TRACK_PAD_LEFT,
+                top:        lineY + '%',
+                transform:  'translate(-50%, -50%)',
+                width:      1,
+                height:     i % 5 === 0 ? 12 : 6,
                 background: 'rgba(232,230,223,0.08)',
               }}
             />
           ))}
 
-          {/* Journey nodes */}
+          {/* ── Project milestone dots ── */}
+          {milestonePositions.map((m) => (
+            <div key={m.id}>
+              {/* Stem below line */}
+              <div style={{
+                position:  'absolute',
+                left:      m.x,
+                top:       lineY + '%',
+                width:     1,
+                height:    22,
+                background:'rgba(214,255,63,0.15)',
+                transform: 'translateX(-50%)',
+              }} />
+              {/* Dot */}
+              <div style={{
+                position:     'absolute',
+                left:         m.x,
+                top:          `calc(${lineY}% + 22px)`,
+                transform:    'translate(-50%, 0)',
+                width:        6,
+                height:       6,
+                borderRadius: '50%',
+                background:   'rgba(214,255,63,0.25)',
+                border:       '1px solid rgba(214,255,63,0.4)',
+              }} />
+              {/* Label */}
+              <div style={{
+                position:      'absolute',
+                left:          m.x,
+                top:           `calc(${lineY}% + 32px)`,
+                transform:     'translateX(-50%)',
+                fontFamily:    'var(--font-mono, monospace)',
+                fontSize:      8,
+                letterSpacing: '0.06em',
+                color:         'rgba(214,255,63,0.35)',
+                whiteSpace:    'nowrap',
+                textAlign:     'center',
+              }}>
+                {m.label}
+              </div>
+            </div>
+          ))}
+
+          {/* ── Journey nodes ── */}
           {JOURNEY.map((item, i) => {
             const x      = TRACK_PAD_LEFT + 480 + i * SPACING
             const isTop  = i % 2 === 0
@@ -228,7 +302,7 @@ export default function TimelineSection() {
                   transform: isTop ? 'translateX(-50%) translateY(-100%)' : 'translateX(-50%)',
                 }} />
 
-                {/* Period label — on opposite side of card */}
+                {/* Period label */}
                 <div style={{
                   position:      'absolute',
                   left:          x,
@@ -308,18 +382,17 @@ export default function TimelineSection() {
                     {item.role}
                   </span>
                   <span style={{
-                    display:       'flex',
-                    alignItems:    'center',
-                    gap:           5,
-                    fontFamily:    'var(--font-mono, monospace)',
-                    fontSize:      9,
+                    display:    'flex',
+                    alignItems: 'center',
+                    gap:        5,
+                    fontFamily: 'var(--font-mono, monospace)',
+                    fontSize:   9,
                     letterSpacing: '0.08em',
-                    color:         'rgba(97,95,88,0.7)',
+                    color:      'rgba(97,95,88,0.7)',
                   }}>
                     <span style={{ width: 4, height: 4, borderRadius: '50%', background: 'currentColor', display: 'inline-block' }} />
                     {item.loc}
                   </span>
-                  {/* Expandable desc */}
                   <div style={{ maxHeight: isOpen ? 120 : 0, overflow: 'hidden', transition: 'max-height 0.3s ease' }}>
                     <p style={{
                       margin:     '10px 0 0',
@@ -333,7 +406,7 @@ export default function TimelineSection() {
                   </div>
                 </div>
 
-                {/* Mid-journey annotation between nodes */}
+                {/* Mid-journey annotation */}
                 {i < JOURNEY.length - 1 && (
                   <div style={{
                     position:      'absolute',
@@ -359,14 +432,14 @@ export default function TimelineSection() {
 
           {/* NOW node */}
           <div style={{
-            position:       'absolute',
-            left:           TRACK_PAD_LEFT + 480 + JOURNEY.length * SPACING + 60,
-            top:            lineY + '%',
-            transform:      'translate(-50%, -50%)',
-            display:        'flex',
-            flexDirection:  'column',
-            alignItems:     'center',
-            gap:            10,
+            position:      'absolute',
+            left:          X_NOW,
+            top:           lineY + '%',
+            transform:     'translate(-50%, -50%)',
+            display:       'flex',
+            flexDirection: 'column',
+            alignItems:    'center',
+            gap:           10,
           }}>
             <div style={{
               width:        18,
@@ -395,7 +468,7 @@ export default function TimelineSection() {
               left:      TRACK_PAD_LEFT + 480 + JOURNEY.length * SPACING + 160,
               top:       '50%',
               transform: 'translateY(-50%)',
-              maxWidth:  400,
+              maxWidth:  420,
             }}
           >
             <span style={{
@@ -421,6 +494,16 @@ export default function TimelineSection() {
               ¿Trabajamos<br />
               <span style={{ color: 'var(--color-acid, #d6ff3f)' }}>juntos?</span>
             </h2>
+            <p style={{
+              margin:     '12px 0 0',
+              fontFamily: 'var(--font-body, sans-serif)',
+              fontSize:   14,
+              lineHeight: 1.6,
+              color:      'var(--color-text-faint, #615f58)',
+              maxWidth:   360,
+            }}>
+              Si estás interesado en una consultoría externa de procesos, automatización o en desarrollar tu startup, contáctame.
+            </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 28 }}>
               <a
                 href="https://wa.me/595985177770"
@@ -471,30 +554,29 @@ export default function TimelineSection() {
           </div>
         </div>
 
-        {/* Scroll hint — fades after scroll starts */}
+        {/* Scroll hint */}
         <div style={{
-          position:       'absolute',
-          bottom:         32,
-          left:           '50%',
-          transform:      'translateX(-50%)',
-          fontFamily:     'var(--font-mono, monospace)',
-          fontSize:       10,
-          letterSpacing:  '0.16em',
-          textTransform:  'uppercase',
-          color:          'var(--color-text-faint, #615f58)',
-          display:        'flex',
-          alignItems:     'center',
-          gap:            8,
-          opacity:        translateX < -20 ? 0 : 1,
-          transition:     'opacity 0.4s',
-          pointerEvents:  'none',
+          position:      'absolute',
+          bottom:        32,
+          left:          '50%',
+          transform:     'translateX(-50%)',
+          fontFamily:    'var(--font-mono, monospace)',
+          fontSize:      10,
+          letterSpacing: '0.16em',
+          textTransform: 'uppercase',
+          color:         'var(--color-text-faint, #615f58)',
+          display:       'flex',
+          alignItems:    'center',
+          gap:           8,
+          opacity:       translateX < -20 ? 0 : 1,
+          transition:    'opacity 0.4s',
+          pointerEvents: 'none',
         }}>
           <span>scroll para explorar</span>
           <span style={{ fontSize: 14 }}>→</span>
         </div>
       </div>
 
-      {/* Keyframe for NOW pulse */}
       <style>{`
         @keyframes pulse {
           0%   { box-shadow: 0 0 0 0   rgba(255,106,61,0.6); }

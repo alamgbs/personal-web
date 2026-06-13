@@ -1,131 +1,155 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useCallback } from 'react'
 import gsap from 'gsap'
 
 interface LoadingScreenProps {
   onComplete: () => void
 }
 
+interface Branch {
+  points: { x: number; y: number }[]
+  width: number
+  depth: number
+  angle: number
+  speed: number
+  children: Branch[]
+  grown: boolean
+}
+
+function createBranch(x: number, y: number, angle: number, width: number, depth: number): Branch {
+  return {
+    points: [{ x, y }],
+    width,
+    depth,
+    angle,
+    speed: 3 + Math.random() * 4,
+    children: [],
+    grown: false,
+  }
+}
+
+function growBranch(branch: Branch, canvasW: number, canvasH: number): boolean {
+  if (branch.grown) return false
+
+  const last = branch.points[branch.points.length - 1]
+
+  const wobble = (Math.random() - 0.5) * 0.3
+  branch.angle += wobble
+  const nx = last.x + Math.cos(branch.angle) * branch.speed
+  const ny = last.y + Math.sin(branch.angle) * branch.speed
+
+  branch.points.push({ x: nx, y: ny })
+
+  const margin = 50
+  if (nx < -margin || nx > canvasW + margin || ny < -margin || ny > canvasH + margin) {
+    branch.grown = true
+    return false
+  }
+
+  if (branch.depth < 6 && branch.points.length > 8 && Math.random() < 0.04 * (1 - branch.depth * 0.12)) {
+    const forkAngle = branch.angle + (Math.random() > 0.5 ? 1 : -1) * (0.5 + Math.random() * 0.8)
+    branch.children.push(
+      createBranch(nx, ny, forkAngle, branch.width * 0.7, branch.depth + 1)
+    )
+  }
+
+  branch.children.forEach(child => growBranch(child, canvasW, canvasH))
+  return true
+}
+
+function drawBranch(ctx: CanvasRenderingContext2D, branch: Branch, color: string, progress: number) {
+  const pointCount = Math.floor(branch.points.length * progress)
+  if (pointCount < 2) return
+
+  ctx.beginPath()
+  ctx.moveTo(branch.points[0].x, branch.points[0].y)
+  for (let i = 1; i < pointCount; i++) {
+    ctx.lineTo(branch.points[i].x, branch.points[i].y)
+  }
+  ctx.strokeStyle = color
+  ctx.lineWidth = branch.width * (1 - branch.depth * 0.1)
+  ctx.lineCap = 'round'
+  ctx.globalAlpha = 0.6 + 0.4 * (1 - branch.depth * 0.15)
+  ctx.stroke()
+  ctx.globalAlpha = 1
+
+  branch.children.forEach(child => drawBranch(ctx, child, color, progress))
+}
+
+const ACID = '#d6ff3f'
+
 export default function LoadingScreen({ onComplete }: LoadingScreenProps) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [mounted, setMounted] = useState(false)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const branchesRef = useRef<Branch[]>([])
+  const progressRef = useRef({ value: 0 })
 
-  useEffect(() => {
-    setMounted(true)
+  const buildBranches = useCallback((ox: number, oy: number) => {
+    const count = 14
+    const branches: Branch[] = []
+    for (let i = 0; i < count; i++) {
+      const angle = (i / count) * Math.PI * 2
+      branches.push(createBranch(ox, oy, angle, 2.2, 0))
+    }
+    branchesRef.current = branches
   }, [])
 
   useEffect(() => {
-    if (!mounted || !containerRef.current) return
+    if (!canvasRef.current || !containerRef.current) return
 
+    const canvas = canvasRef.current
     const container = containerRef.current
-    const vw = window.innerWidth
-    const vh = window.innerHeight
-    const cubeSize = 32
-    const gap = 2
-    const step = cubeSize + gap
-    const cols = Math.ceil(vw / step) + 2
-    const rows = Math.ceil(vh / step) + 2
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
 
-    // Build cube grid
-    const fragment = document.createDocumentFragment()
-    const cubes: HTMLElement[] = []
+    const dpr = window.devicePixelRatio || 1
+    const W = window.innerWidth
+    const H = window.innerHeight
 
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const cube = document.createElement('div')
-        cube.style.cssText = `
-          position: absolute;
-          width: ${cubeSize}px;
-          height: ${cubeSize}px;
-          left: ${c * step - step}px;
-          top: ${r * step - step}px;
-          transform-style: preserve-3d;
-          transform: rotateX(0deg) rotateY(0deg) scale(1);
-          opacity: 1;
-        `
+    canvas.width = W * dpr
+    canvas.height = H * dpr
+    canvas.style.width = W + 'px'
+    canvas.style.height = H + 'px'
+    ctx.scale(dpr, dpr)
 
-        // Front face
-        const front = document.createElement('div')
-        front.style.cssText = `
-          position: absolute;
-          inset: 0;
-          background: rgba(214,255,63,0.02);
-          border: 1px solid rgba(214,255,63,0.12);
-          box-shadow: 0 0 6px rgba(214,255,63,0.06), inset 0 0 8px rgba(214,255,63,0.02);
-        `
+    const ox = W / 2
+    const oy = H / 2
 
-        // Right face (3D depth illusion)
-        const right = document.createElement('div')
-        right.style.cssText = `
-          position: absolute;
-          width: 6px;
-          height: ${cubeSize}px;
-          top: 0;
-          right: -6px;
-          background: rgba(214,255,63,0.04);
-          border: 1px solid rgba(214,255,63,0.06);
-          transform: skewY(-45deg) translateY(-3px);
-          transform-origin: left top;
-        `
+    buildBranches(ox, oy)
 
-        // Bottom face (3D depth illusion)
-        const bottom = document.createElement('div')
-        bottom.style.cssText = `
-          position: absolute;
-          width: ${cubeSize}px;
-          height: 6px;
-          bottom: -6px;
-          left: 0;
-          background: rgba(214,255,63,0.03);
-          border: 1px solid rgba(214,255,63,0.05);
-          transform: skewX(-45deg) translateX(3px);
-          transform-origin: left top;
-        `
-
-        cube.appendChild(front)
-        cube.appendChild(right)
-        cube.appendChild(bottom)
-        fragment.appendChild(cube)
-        cubes.push(cube)
-      }
+    // Pre-grow all branches to full extent
+    for (let i = 0; i < 300; i++) {
+      branchesRef.current.forEach(b => growBranch(b, W, H))
     }
 
-    container.appendChild(fragment)
+    progressRef.current.value = 0
 
-    // GSAP timeline — immediate explosive dissolve, no hold
-    const tl = gsap.timeline({
+    const tween = gsap.to(progressRef.current, {
+      value: 1,
+      duration: 1.1,
+      ease: 'power2.inOut',
+      onUpdate: () => {
+        ctx.clearRect(0, 0, W, H)
+        branchesRef.current.forEach(branch => {
+          drawBranch(ctx, branch, ACID, progressRef.current.value)
+        })
+      },
       onComplete: () => {
+        // Fade out the whole loading screen
         gsap.to(container, {
           opacity: 0,
-          duration: 0.25,
+          duration: 0.4,
+          ease: 'power2.in',
           onComplete,
         })
       },
     })
 
-    // Explosion: pieces scatter outward from center, top-down blast view
-    tl.to(cubes, {
-      rotateX: () => gsap.utils.random(-110, 110),
-      rotateY: () => gsap.utils.random(-110, 110),
-      x:       () => gsap.utils.random(-60, 60),
-      y:       () => gsap.utils.random(-60, 60),
-      scale:   () => gsap.utils.random(0.05, 2.4),
-      opacity: 0,
-      duration: 0.55,
-      ease: 'power3.in',
-      stagger: {
-        from: 'center',
-        grid: [rows, cols],
-        amount: 0.55,
-        ease: 'power2.in',
-      },
-    })
-
     return () => {
-      tl.kill()
+      tween.kill()
     }
-  }, [mounted, onComplete])
+  }, [buildBranches, onComplete])
 
   return (
     <div
@@ -136,24 +160,18 @@ export default function LoadingScreen({ onComplete }: LoadingScreenProps) {
         background: '#0c0c0a',
         zIndex: 9999,
         overflow: 'hidden',
-        perspective: '600px',
-        perspectiveOrigin: '50% 50%',
       }}
     >
-      {/* Center glow */}
-      <div
+      <canvas
+        ref={canvasRef}
         style={{
           position: 'absolute',
-          top: '50%',
-          left: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: '40vw',
-          height: '40vh',
-          background: 'radial-gradient(ellipse, rgba(214,255,63,0.06) 0%, transparent 70%)',
+          top: 0,
+          left: 0,
           pointerEvents: 'none',
-          zIndex: 1,
         }}
       />
+
       {/* Monogram */}
       <div
         style={{
