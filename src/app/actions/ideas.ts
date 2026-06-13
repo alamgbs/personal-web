@@ -132,33 +132,103 @@ export async function promoteToBacklog(ideaId: string) {
 
   const { data: idea, error: fetchError } = await supabase
     .from('business_ideas')
-    .select('title, summary')
+    .select('id, title, slug, summary, status, promoted_project_id, step_data')
     .eq('id', ideaId)
     .single()
 
   if (fetchError) return { error: fetchError.message }
 
-  // Create a backlog item without project_id (null means it's a new idea for a project)
-  const { error: backlogError } = await supabase.from('backlog_items').insert({
-    title: `[Idea] ${idea.title}`,
-    description: idea.summary,
-    status: 'backlog',
-    priority: 'high',
-    type: 'feature',
-    tags: ['idea', 'business'],
-    position: 0,
-  })
+  if (idea.promoted_project_id) {
+    return { success: true, project_id: idea.promoted_project_id }
+  }
+
+  const stepData = (idea.step_data as Record<string, unknown>) || {}
+  const projectSlug = `${idea.slug}-mc`
+  const projectDescription = [
+    idea.summary,
+    '',
+    'Origin: business idea promoted from Mission Control analysis wizard.',
+    'Current phase: PRD + sprint breakdown seed generated automatically.',
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  const { data: project, error: projectError } = await supabase
+    .from('projects')
+    .insert({
+      name: idea.title,
+      slug: projectSlug,
+      description: projectDescription,
+      status: 'active',
+      tech_stack: ['openai-codex', 'mission-control', 'tbd'],
+      github_repo: null,
+      url: null,
+    })
+    .select('id')
+    .single()
+
+  if (projectError) return { error: projectError.message }
+
+  const stepSummary = JSON.stringify(stepData)
+  const backlogSeed = [
+    {
+      project_id: project.id,
+      title: `PRD · ${idea.title}`,
+      description: `Create the first PRD draft based on the approved business analysis.\n\nIdea summary:\n${idea.summary || 'No summary provided.'}\n\nStep data snapshot:\n${stepSummary}`,
+      status: 'backlog',
+      priority: 'high',
+      type: 'feature',
+      assignee_slug: 'product-lead',
+      tags: ['prd', 'product', 'idea-handoff'],
+      position: 0,
+    },
+    {
+      project_id: project.id,
+      title: `Sprint 0 plan · ${idea.title}`,
+      description: 'Break the approved idea into architecture, delivery phases, sprint goals, and iterative milestones after the PRD direction is clear.',
+      status: 'backlog',
+      priority: 'high',
+      type: 'task',
+      assignee_slug: 'dev-lead',
+      tags: ['sprint-0', 'delivery-plan', 'dev'],
+      position: 1,
+    },
+    {
+      project_id: project.id,
+      title: `UX concept · ${idea.title}`,
+      description: 'Translate the approved customer profile and journey into flows, screen hypotheses, and UX constraints for the PRD.',
+      status: 'backlog',
+      priority: 'medium',
+      type: 'task',
+      assignee_slug: 'ux-ui',
+      tags: ['ux', 'journey', 'flows'],
+      position: 2,
+    },
+    {
+      project_id: project.id,
+      title: `Validation memo · ${idea.title}`,
+      description: 'Prepare a concise market and viability recap to support product and dev decisions during sprint planning.',
+      status: 'backlog',
+      priority: 'medium',
+      type: 'task',
+      assignee_slug: 'research',
+      tags: ['research', 'validation', 'market'],
+      position: 3,
+    },
+  ]
+
+  const { error: backlogError } = await supabase.from('backlog_items').insert(backlogSeed)
 
   if (backlogError) return { error: backlogError.message }
 
   const { error } = await supabase
     .from('business_ideas')
-    .update({ status: 'in_development' })
+    .update({ status: 'in_development', promoted_project_id: project.id })
     .eq('id', ideaId)
 
   if (error) return { error: error.message }
 
   revalidatePath('/mission-control/ideas')
   revalidatePath('/mission-control/proyectos')
-  return { success: true }
+  return { success: true, project_id: project.id }
 }

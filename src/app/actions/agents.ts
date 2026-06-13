@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { getDefaultCodexModelForTier } from '@/lib/mission-control/agents'
 
 function splitCsv(value: FormDataEntryValue | null) {
   return String(value || '')
@@ -50,6 +51,38 @@ export async function updateAgent(id: string, data: Record<string, unknown>) {
   const supabase = await createClient()
 
   const { error } = await supabase.from('agents').update(data).eq('id', id)
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  revalidatePath('/mission-control/agentes')
+  return { success: true }
+}
+
+export async function updateAgentRuntime(input: {
+  id: string
+  cost_tier: string | null
+  llm_model: string | null
+  soul_short: string | null
+}) {
+  const supabase = await createClient()
+
+  const costTier = input.cost_tier?.trim() || null
+  const soulShort = input.soul_short?.trim() || null
+  const explicitModel = input.llm_model?.trim() || null
+  const llmModel = explicitModel || getDefaultCodexModelForTier(costTier)
+
+  const { error } = await supabase
+    .from('agents')
+    .update({
+      cost_tier: costTier,
+      soul_short: soulShort,
+      llm_model: llmModel,
+      model: llmModel,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.id)
 
   if (error) {
     return { error: error.message }

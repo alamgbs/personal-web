@@ -12,6 +12,7 @@ type Idea = {
   current_step: number | null
   step_data: Record<string, unknown> | null
   step_approvals: Record<string, unknown> | null
+  promoted_project_id?: string | null
 }
 
 type Props = {
@@ -516,6 +517,11 @@ export function IdeaWizard({ idea }: Props) {
                 {idea.summary}
               </p>
             )}
+            {idea.promoted_project_id && (
+              <p style={{ margin: '8px 0 0', fontSize: '12px', color: '#60a5fa', fontFamily: 'var(--font-mono)' }}>
+                Proyecto seed creado y enviado a /mission-control/proyectos.
+              </p>
+            )}
           </div>
           <span style={{
             fontFamily: 'var(--font-mono)',
@@ -676,7 +682,7 @@ export function IdeaWizard({ idea }: Props) {
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {/* If last step (8), show promote button */}
-          {activeStep === 8 && isStepApproved(7) && status !== 'in_development' && (
+          {activeStep === 8 && isStepApproved(8) && status !== 'in_development' && (
             <button
               onClick={handlePromoteToBacklog}
               disabled={promoting}

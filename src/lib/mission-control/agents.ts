@@ -37,6 +37,23 @@ export const CANONICAL_AGENT_ORDER = [
 
 export const TEAM_ORDER = ['Command', 'Marketing', 'Product', 'Dev & IT'] as const
 
+export const AGENT_PROVIDER = 'openai-codex' as const
+
+export const COST_TIER_OPTIONS = [
+  'C10',
+  'C9',
+  'C8',
+  'C7',
+  'C6',
+  'C5',
+  'C4',
+  'C3',
+  'C2',
+  'C1',
+] as const
+
+export const CODEX_MODEL_OPTIONS = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano'] as const
+
 const canonicalIndex: Record<string, number> = Object.fromEntries(
   CANONICAL_AGENT_ORDER.map((slug, index) => [slug, index])
 )
@@ -66,6 +83,26 @@ export function sortAgents(agents: AgentRow[]) {
 
 export function getAgentModel(agent: Pick<AgentRow, 'llm_model' | 'model'>) {
   return agent.llm_model || agent.model || '—'
+}
+
+export function getDefaultCodexModelForTier(costTier: string | null) {
+  switch (costTier) {
+    case 'C10':
+    case 'C9':
+      return 'gpt-5'
+    case 'C8':
+    case 'C7':
+    case 'C6':
+      return 'gpt-5-mini'
+    case 'C5':
+    case 'C4':
+    case 'C3':
+    case 'C2':
+    case 'C1':
+      return 'gpt-5-nano'
+    default:
+      return null
+  }
 }
 
 export function getCostTierLabel(agent: Pick<AgentRow, 'cost_tier' | 'slug'>) {
