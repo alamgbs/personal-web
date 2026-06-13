@@ -15,21 +15,31 @@ const TYPE_COLOR: Record<string, string> = {
   WORK: 'var(--color-coral, #ff6a3d)',
 }
 
-/* ── Project milestones — small secondary dots on the timeline ── */
+/* ── Project milestones (below line, acid) ── */
 const PROJECT_MILESTONES = [
-  { id: 'nlp-m',      year: 2018, label: 'NLP & Sentiment'    },
-  { id: 'uheal-m',    year: 2020, label: 'Uhueal'             },
-  { id: 'prop-m',     year: 2020, label: 'PropSpace'          },
-  { id: 'rutas-m',    year: 2021, label: 'Rutas Reparto'      },
-  { id: 'canna-m',    year: 2021, label: 'CBD Extracción'     },
-  { id: 'rpa-m',      year: 2022, label: 'Clasif. Clientes'   },
-  { id: 'bigdata-m',  year: 2022, label: 'Big Data Olist'     },
-  { id: 'tudu-m',     year: 2024, label: 'TUDU App'           },
-  { id: 'l2o-m',      year: 2024, label: 'Lead-to-Cash'       },
-  { id: 'abast-m',    year: 2024, label: 'Abastecimiento'     },
-  { id: 'asugreen-m', year: 2025, label: 'ASUGREEN'           },
-  { id: 'obras-m',    year: 2025, label: 'Gestión Obras'      },
-  { id: 'kapi-m',     year: 2026, label: 'KAPI'               },
+  { id: 'nlp-m',      year: 2018, label: 'NLP & Sentiment',   xAdj:   0 },
+  { id: 'uheal-m',    year: 2020, label: 'Uhueal',            xAdj:   0 },
+  { id: 'prop-m',     year: 2020, label: 'PropSpace',         xAdj:   0 },
+  { id: 'rutas-m',    year: 2021, label: 'Rutas Reparto',     xAdj:   0 },
+  { id: 'canna-m',    year: 2021, label: 'CBD Extracción',    xAdj:   0 },
+  { id: 'rpa-m',      year: 2022, label: 'Clasif. Clientes',  xAdj:   0 },
+  { id: 'bigdata-m',  year: 2022, label: 'Big Data Olist',    xAdj:   0 },
+  { id: 'tudu-m',     year: 2024, label: 'TUDU App',          xAdj:   0 },
+  { id: 'l2o-m',      year: 2024, label: 'Lead-to-Cash',      xAdj:   0 },
+  { id: 'abast-m',    year: 2024, label: 'Abastecimiento',    xAdj:   0 },
+  { id: 'asugreen-m', year: 2025, label: 'ASUGREEN',          xAdj:   0 },
+  { id: 'obras-m',    year: 2025, label: 'Gestión Obras',     xAdj:   0 },
+  { id: 'kapi-m',     year: 2026, label: 'KAPI',              xAdj: -40 }, // antes del master
+]
+
+/* ── Certification milestones (above line, bone) ── */
+const CERT_MILESTONES = [
+  { id: 'goog-c',    year: 2022, label: 'Google Transformation', xAdj:   0 },
+  { id: 'scrum-c',   year: 2022, label: 'Scrum Master · SA',     xAdj:   0 },
+  { id: 'bigduc-c',  year: 2023, label: 'Big Data · UCOM',       xAdj:   0 },
+  { id: 'etom-c',    year: 2023, label: 'eTOM Process',          xAdj:   0 },
+  { id: 'gb-c',      year: 2025, label: 'Green Belt · LSSI',     xAdj:   0 },
+  { id: 'master-c',  year: 2026, label: 'Master PM · OBS',       xAdj:  40 }, // después de KAPI
 ]
 
 const CARD_W          = 240
@@ -47,20 +57,22 @@ function yearToX(year: number): number {
   return X_JOURNEY_START + ((year - YEAR_START) / (YEAR_END - YEAR_START)) * (X_NOW - X_JOURNEY_START)
 }
 
-/* Pre-compute milestone positions: wider horizontal stagger + varying stem depth */
-const milestonePositions = (() => {
+function computePositions<T extends { year: number; xAdj: number }>(items: T[]) {
   const groups: Record<number, number> = {}
   const counts: Record<number, number> = {}
-  PROJECT_MILESTONES.forEach(m => { counts[m.year] = (counts[m.year] || 0) + 1 })
-  return PROJECT_MILESTONES.map(m => {
-    const idx    = groups[m.year] ?? 0
+  items.forEach(m => { counts[m.year] = (counts[m.year] || 0) + 1 })
+  return items.map(m => {
+    const idx  = groups[m.year] ?? 0
     groups[m.year] = idx + 1
-    const total  = counts[m.year]
-    const xOff   = (idx - (total - 1) / 2) * 80   // 80px between same-year siblings
-    const stemH  = 22 + idx * 16                    // each sibling hangs deeper
-    return { ...m, x: yearToX(m.year) + xOff, stemH }
+    const total = counts[m.year]
+    const xOff  = (idx - (total - 1) / 2) * 80   // 80px between same-year siblings
+    const stemH = 22 + idx * 16                    // each sibling hangs deeper / higher
+    return { ...m, x: yearToX(m.year) + xOff + m.xAdj, stemH }
   })
-})()
+}
+
+const milestonePositions = computePositions(PROJECT_MILESTONES)
+const certPositions      = computePositions(CERT_MILESTONES)
 
 export default function TimelineSection() {
   const sectionRef = useRef<HTMLDivElement>(null)
@@ -260,6 +272,49 @@ export default function TimelineSection() {
             </div>
           ))}
 
+          {/* ── Certification milestones (above line, bone) ── */}
+          {certPositions.map((m) => (
+            <div key={m.id}>
+              {/* Stem above line */}
+              <div style={{
+                position:  'absolute',
+                left:      m.x,
+                top:       `calc(${lineY}% - ${m.stemH}px)`,
+                width:     1,
+                height:    m.stemH,
+                background:'rgba(236,233,225,0.12)',
+                transform: 'translateX(-50%)',
+              }} />
+              {/* Dot */}
+              <div style={{
+                position:     'absolute',
+                left:         m.x,
+                top:          `calc(${lineY}% - ${m.stemH}px)`,
+                transform:    'translate(-50%, -50%)',
+                width:        6,
+                height:       6,
+                borderRadius: '50%',
+                background:   'rgba(236,233,225,0.18)',
+                border:       '1px solid rgba(236,233,225,0.35)',
+              }} />
+              {/* Label */}
+              <div style={{
+                position:      'absolute',
+                left:          m.x,
+                top:           `calc(${lineY}% - ${m.stemH + 12}px)`,
+                transform:     'translate(-50%, -100%)',
+                fontFamily:    'var(--font-mono, monospace)',
+                fontSize:      8,
+                letterSpacing: '0.06em',
+                color:         'rgba(236,233,225,0.3)',
+                whiteSpace:    'nowrap',
+                textAlign:     'center',
+              }}>
+                {m.label}
+              </div>
+            </div>
+          ))}
+
           {/* ── Journey nodes ── */}
           {JOURNEY.map((item, i) => {
             const x      = TRACK_PAD_LEFT + 480 + i * SPACING
@@ -430,36 +485,6 @@ export default function TimelineSection() {
               </div>
             )
           })}
-
-          {/* NOW node */}
-          <div style={{
-            position:      'absolute',
-            left:          X_NOW,
-            top:           lineY + '%',
-            transform:     'translate(-50%, -50%)',
-            display:       'flex',
-            flexDirection: 'column',
-            alignItems:    'center',
-            gap:           10,
-          }}>
-            <div style={{
-              width:        18,
-              height:       18,
-              borderRadius: '50%',
-              background:   'var(--color-coral, #ff6a3d)',
-              boxShadow:    '0 0 0 0 rgba(255,106,61,0.5)',
-              animation:    'pulse 2.4s ease-out infinite',
-            }} />
-            <span style={{
-              fontFamily:    'var(--font-mono, monospace)',
-              fontSize:      10,
-              letterSpacing: '0.2em',
-              textTransform: 'uppercase',
-              color:         'var(--color-coral, #ff6a3d)',
-            }}>
-              AHORA
-            </span>
-          </div>
 
           {/* Contact CTA */}
           <div
