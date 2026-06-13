@@ -1,60 +1,24 @@
 'use client'
 
-import { useState } from 'react'
-
-type Agent = {
-  id: string
-  name: string
-  slug: string
-  role: string
-  team: string | null
-  soul: string | null
-  skills: string[] | null
-  model: string | null
-  parent_id: string | null
-  responsibilities: string[] | null
-  status: string | null
-  avatar_emoji: string | null
-}
+import { useMemo, useState } from 'react'
+import { getAgentModel, getCostTierLabel, getSoulPreview, type AgentRow } from '@/lib/mission-control/agents'
 
 type Props = {
-  agents: Agent[]
+  agents: AgentRow[]
 }
 
-const TEAMS = ['Marketing', 'Producto', 'Desarrollo']
+type AgentGroup = {
+  lead: AgentRow
+  members: AgentRow[]
+}
 
 function AgentCard({
   agent,
   onClick,
 }: {
-  agent: Agent | null
+  agent: AgentRow
   onClick?: () => void
-  placeholder?: boolean
 }) {
-  if (!agent) {
-    return (
-      <button
-        onClick={onClick}
-        style={{
-          background: 'transparent',
-          border: '1px dashed var(--color-border)',
-          borderRadius: '8px',
-          padding: '12px',
-          cursor: 'pointer',
-          color: 'var(--color-text-faint)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: '11px',
-          letterSpacing: '0.1em',
-          textTransform: 'uppercase',
-          width: '100%',
-          minWidth: '140px',
-        }}
-      >
-        + Add Agent
-      </button>
-    )
-  }
-
   return (
     <button
       onClick={onClick}
@@ -66,46 +30,51 @@ function AgentCard({
         cursor: 'pointer',
         textAlign: 'left',
         width: '100%',
-        minWidth: '140px',
+        minWidth: '180px',
         transition: 'border-color 0.15s',
         display: 'flex',
         flexDirection: 'column',
-        gap: '4px',
+        gap: '6px',
       }}
       onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'var(--color-acid)')}
       onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border)')}
     >
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span style={{ fontSize: '20px' }}>{agent.avatar_emoji || '🤖'}</span>
         <div>
-          <div style={{ color: 'var(--color-text)', fontSize: '13px', fontFamily: 'var(--font-heading)', fontWeight: 600 }}>
+          <div
+            style={{
+              color: 'var(--color-text)',
+              fontSize: '13px',
+              fontFamily: 'var(--font-heading)',
+              fontWeight: 600,
+            }}
+          >
             {agent.name}
           </div>
-          <div style={{ color: 'var(--color-text-faint)', fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+          <div
+            style={{
+              color: 'var(--color-text-faint)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: '10px',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+            }}
+          >
             {agent.role}
           </div>
         </div>
       </div>
-      {agent.model && (
-        <div style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: '9px',
-          letterSpacing: '0.08em',
-          color: 'var(--color-acid)',
-          background: 'rgba(214,255,63,0.08)',
-          borderRadius: '3px',
-          padding: '2px 6px',
-          alignSelf: 'flex-start',
-          textTransform: 'uppercase',
-        }}>
-          {agent.model}
-        </div>
-      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+        <span style={pillStyle}>{getCostTierLabel(agent)}</span>
+        <span style={pillStyle}>{getAgentModel(agent)}</span>
+      </div>
     </button>
   )
 }
 
-function SlideOver({ agent, onClose }: { agent: Agent; onClose: () => void }) {
+function SlideOver({ agent, onClose }: { agent: AgentRow; onClose: () => void }) {
   return (
     <>
       <div
@@ -138,8 +107,18 @@ function SlideOver({ agent, onClose }: { agent: Agent; onClose: () => void }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <span style={{ fontSize: '32px' }}>{agent.avatar_emoji || '🤖'}</span>
             <div>
-              <h3 style={{ margin: 0, fontSize: '18px', fontFamily: 'var(--font-heading)' }}>{agent.name}</h3>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--color-text-faint)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              <h3 style={{ margin: 0, fontSize: '18px', fontFamily: 'var(--font-heading)' }}>
+                {agent.name}
+              </h3>
+              <span
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '11px',
+                  color: 'var(--color-text-faint)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.1em',
+                }}
+              >
                 {agent.role} · {agent.team || 'No team'}
               </span>
             </div>
@@ -160,79 +139,57 @@ function SlideOver({ agent, onClose }: { agent: Agent; onClose: () => void }) {
           </button>
         </div>
 
-        {agent.model && (
-          <div>
-            <div style={sectionLabel}>Modelo</div>
-            <span style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: '11px',
-              color: 'var(--color-acid)',
-              background: 'rgba(214,255,63,0.08)',
-              borderRadius: '4px',
-              padding: '4px 10px',
-            }}>
-              {agent.model}
-            </span>
-          </div>
-        )}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+          <span style={detailPillStyle}>{getCostTierLabel(agent)}</span>
+          <span style={detailPillStyle}>{getAgentModel(agent)}</span>
+          <span style={detailPillStyle}>{agent.status || 'active'}</span>
+        </div>
 
-        {agent.soul && (
-          <div>
-            <div style={sectionLabel}>Soul / System Prompt</div>
-            <p style={{
+        <div>
+          <div style={sectionLabel}>Soul corta</div>
+          <p
+            style={{
               margin: 0,
-              fontFamily: 'var(--font-mono)',
-              fontSize: '12px',
+              fontFamily: 'var(--font-body)',
+              fontSize: '14px',
               color: 'var(--color-text)',
               lineHeight: 1.6,
-              background: 'var(--color-surface-1)',
-              border: '1px solid var(--color-border)',
-              borderRadius: '6px',
-              padding: '10px 12px',
-              whiteSpace: 'pre-wrap',
-            }}>
+            }}
+          >
+            {getSoulPreview(agent)}
+          </p>
+        </div>
+
+        <div>
+          <div style={sectionLabel}>Primary skills</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+            {(agent.skills || []).map((skill) => (
+              <span key={skill} style={detailPillStyle}>
+                {skill}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {agent.soul && agent.soul !== agent.soul_short && (
+          <div>
+            <div style={sectionLabel}>Soul extendida</div>
+            <p
+              style={{
+                margin: 0,
+                fontFamily: 'var(--font-mono)',
+                fontSize: '12px',
+                color: 'var(--color-text)',
+                lineHeight: 1.6,
+                background: 'var(--color-surface-1)',
+                border: '1px solid var(--color-border)',
+                borderRadius: '6px',
+                padding: '10px 12px',
+                whiteSpace: 'pre-wrap',
+              }}
+            >
               {agent.soul}
             </p>
-          </div>
-        )}
-
-        {agent.skills && agent.skills.length > 0 && (
-          <div>
-            <div style={sectionLabel}>Skills</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-              {agent.skills.map((skill) => (
-                <span
-                  key={skill}
-                  style={{
-                    fontFamily: 'var(--font-mono)',
-                    fontSize: '10px',
-                    letterSpacing: '0.08em',
-                    textTransform: 'uppercase',
-                    color: 'var(--color-text)',
-                    background: 'var(--color-surface-3)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: '3px',
-                    padding: '3px 8px',
-                  }}
-                >
-                  {skill}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {agent.responsibilities && agent.responsibilities.length > 0 && (
-          <div>
-            <div style={sectionLabel}>Responsabilidades</div>
-            <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {agent.responsibilities.map((r, i) => (
-                <li key={i} style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
-                  <span style={{ color: 'var(--color-acid)', fontFamily: 'var(--font-mono)', fontSize: '11px', marginTop: '2px' }}>→</span>
-                  <span style={{ fontSize: '13px', color: 'var(--color-text)' }}>{r}</span>
-                </li>
-              ))}
-            </ul>
           </div>
         )}
       </div>
@@ -249,21 +206,48 @@ const sectionLabel: React.CSSProperties = {
   marginBottom: '6px',
 }
 
+const pillStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '9px',
+  letterSpacing: '0.08em',
+  color: 'var(--color-acid)',
+  background: 'rgba(214,255,63,0.08)',
+  borderRadius: '999px',
+  padding: '2px 6px',
+  textTransform: 'uppercase',
+}
+
+const detailPillStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '10px',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--color-text)',
+  background: 'var(--color-surface-3)',
+  border: '1px solid var(--color-border)',
+  borderRadius: '999px',
+  padding: '4px 8px',
+}
+
 export function AgentOrgChart({ agents }: Props) {
-  const [selected, setSelected] = useState<Agent | null>(null)
+  const [selected, setSelected] = useState<AgentRow | null>(null)
 
-  const owner = agents.find((a) => a.role === 'owner')
-  const orchestrator = agents.find((a) => a.role === 'orchestrator')
+  const { owner, orchestrator, groups } = useMemo(() => {
+    const owner = agents.find((agent) => agent.slug === 'alam') || null
+    const orchestrator = agents.find((agent) => agent.slug === 'hermes') || null
 
-  const teamLeads = TEAMS.reduce<Record<string, Agent | null>>((acc, team) => {
-    acc[team] = agents.find((a) => a.team === team && a.role === 'team_lead') || null
-    return acc
-  }, {})
+    if (!orchestrator) {
+      return { owner, orchestrator, groups: [] as AgentGroup[] }
+    }
 
-  const teamMembers = TEAMS.reduce<Record<string, Agent[]>>((acc, team) => {
-    acc[team] = agents.filter((a) => a.team === team && a.role !== 'team_lead')
-    return acc
-  }, {})
+    const leadAgents = agents.filter((agent) => agent.parent_id === orchestrator.id)
+    const groups = leadAgents.map((lead) => ({
+      lead,
+      members: agents.filter((agent) => agent.parent_id === lead.id),
+    }))
+
+    return { owner, orchestrator, groups }
+  }, [agents])
 
   const lineStyle: React.CSSProperties = {
     width: '1px',
@@ -272,94 +256,76 @@ export function AgentOrgChart({ agents }: Props) {
     margin: '0 auto',
   }
 
-  const hLineStyle: React.CSSProperties = {
-    height: '1px',
-    background: 'var(--color-border)',
-    flex: 1,
-  }
-
   return (
     <div style={{ overflowX: 'auto', paddingBottom: '1rem' }}>
-      {/* Owner */}
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '0' }}>
-        <div style={{ width: '180px' }}>
-          {owner ? (
-            <AgentCard agent={owner} onClick={() => setSelected(owner)} />
-          ) : (
-            <AgentCard agent={null} placeholder />
-          )}
-        </div>
-      </div>
+      {owner && (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <div style={{ width: '220px' }}>
+              <AgentCard agent={owner} onClick={() => setSelected(owner)} />
+            </div>
+          </div>
+          <div style={lineStyle} />
+        </>
+      )}
 
-      {/* Line */}
-      <div style={lineStyle} />
+      {orchestrator && (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'center' }}>
+            <div style={{ width: '220px' }}>
+              <AgentCard agent={orchestrator} onClick={() => setSelected(orchestrator)} />
+            </div>
+          </div>
+          {groups.length > 0 && <div style={lineStyle} />}
+        </>
+      )}
 
-      {/* Orchestrator */}
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <div style={{ width: '180px' }}>
-          {orchestrator ? (
-            <AgentCard agent={orchestrator} onClick={() => setSelected(orchestrator)} />
-          ) : (
-            <AgentCard agent={null} placeholder />
-          )}
-        </div>
-      </div>
-
-      {/* Line + horizontal branch */}
-      <div style={lineStyle} />
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', maxWidth: '700px', margin: '0 auto' }}>
-        <div style={hLineStyle} />
-        <div style={{ width: '1px', height: '24px', background: 'var(--color-border)' }} />
-        <div style={hLineStyle} />
-      </div>
-
-      {/* Teams */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1.5rem', maxWidth: '700px', margin: '0 auto' }}>
-        {TEAMS.map((team) => {
-          const lead = teamLeads[team]
-          const members = teamMembers[team]
-          return (
-            <div key={team} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
-              {/* Team label */}
-              <div style={{
-                fontFamily: 'var(--font-mono)',
-                fontSize: '9px',
-                letterSpacing: '0.14em',
-                textTransform: 'uppercase',
-                color: 'var(--color-acid)',
-                marginBottom: '4px',
-                borderBottom: '1px solid rgba(214,255,63,0.2)',
-                paddingBottom: '4px',
-                width: '100%',
-                textAlign: 'center',
-              }}>
-                {team}
+      {groups.length > 0 && (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: `repeat(${groups.length}, minmax(180px, 1fr))`,
+            gap: '1.5rem',
+            maxWidth: '980px',
+            margin: '0 auto',
+          }}
+        >
+          {groups.map(({ lead, members }) => (
+            <div key={lead.id} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+              <div
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '9px',
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: 'var(--color-acid)',
+                  marginBottom: '4px',
+                  borderBottom: '1px solid rgba(214,255,63,0.2)',
+                  paddingBottom: '4px',
+                  width: '100%',
+                  textAlign: 'center',
+                }}
+              >
+                {lead.team}
               </div>
-              {/* Drop line */}
               <div style={{ width: '1px', height: '16px', background: 'var(--color-border)' }} />
-              {/* Lead */}
               <div style={{ width: '100%' }}>
-                <AgentCard
-                  agent={lead}
-                  onClick={lead ? () => setSelected(lead) : undefined}
-                  placeholder={!lead}
-                />
+                <AgentCard agent={lead} onClick={() => setSelected(lead)} />
               </div>
-              {/* Members */}
               {members.length > 0 && (
                 <>
                   <div style={{ width: '1px', height: '16px', background: 'var(--color-border)' }} />
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%' }}>
-                    {members.map((m) => (
-                      <AgentCard key={m.id} agent={m} onClick={() => setSelected(m)} />
+                    {members.map((member) => (
+                      <AgentCard key={member.id} agent={member} onClick={() => setSelected(member)} />
                     ))}
                   </div>
                 </>
               )}
             </div>
-          )
-        })}
-      </div>
+          ))}
+        </div>
+      )}
 
       {selected && <SlideOver agent={selected} onClose={() => setSelected(null)} />}
     </div>

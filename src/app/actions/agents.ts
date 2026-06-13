@@ -3,31 +3,35 @@
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 
+function splitCsv(value: FormDataEntryValue | null) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
 export async function createAgent(formData: FormData) {
   const supabase = await createClient()
 
-  const skills = (formData.get('skills') as string)
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
+  const parentId = String(formData.get('parent_id') || '')
+  const llmModel = String(formData.get('llm_model') || '')
+  const soulShort = String(formData.get('soul_short') || '')
+  const fullSoul = String(formData.get('soul') || soulShort)
 
-  const responsibilities = (formData.get('responsibilities') as string)
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
-
-  const parentId = formData.get('parent_id') as string
   const data: Record<string, unknown> = {
-    name: formData.get('name') as string,
-    slug: formData.get('slug') as string,
-    role: formData.get('role') as string,
-    team: formData.get('team') as string,
-    soul: formData.get('soul') as string,
-    skills,
-    responsibilities,
-    model: formData.get('model') as string,
-    avatar_emoji: formData.get('avatar_emoji') as string,
-    status: 'active',
+    name: String(formData.get('name') || ''),
+    slug: String(formData.get('slug') || ''),
+    role: String(formData.get('role') || ''),
+    team: String(formData.get('team') || '') || null,
+    soul_short: soulShort || null,
+    soul: fullSoul || null,
+    skills: splitCsv(formData.get('skills')),
+    responsibilities: splitCsv(formData.get('responsibilities')),
+    llm_model: llmModel || null,
+    model: llmModel || null,
+    cost_tier: String(formData.get('cost_tier') || '') || null,
+    avatar_emoji: String(formData.get('avatar_emoji') || '') || null,
+    status: String(formData.get('status') || 'active'),
   }
 
   if (parentId) data.parent_id = parentId
