@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { IDEA_STEPS } from '@/lib/mission-control/idea-steps'
+import { FINAL_IDEA_STEP_INDEX, IDEA_STEPS, TOTAL_IDEA_STEPS } from '@/lib/mission-control/idea-steps'
 import { getIdeaStepAssignment, isIdeaStepComplete } from '@/lib/mission-control/ideas'
 import { generateProjectPrd, queueIdeaPipelineAutomation } from '@/lib/mission-control/automation'
 import { isIdeaReadyForReview } from '@/lib/mission-control/workflow'
@@ -76,8 +76,8 @@ export async function createBusinessIdea(formData: FormData) {
       intake_channel: intakeChannel,
       notification_target: notificationTarget,
       workflow_stage: 'idea_pipeline',
-      automation_status: autoStart ? 'queued' : 'blocked',
-      automation_requested_at: autoStart ? new Date().toISOString() : null,
+      automation_status: 'queued',
+      automation_requested_at: new Date().toISOString(),
     })
     .select('id')
     .single()
@@ -200,7 +200,7 @@ export async function generateIdeaAgentPipeline(ideaId: string) {
 
   try {
     const result = await queueIdeaPipelineAutomation(ideaId)
-    return { success: true, generated_steps: 9, queued: true, workflow_stage: result.workflow_stage }
+    return { success: true, generated_steps: TOTAL_IDEA_STEPS, queued: true, workflow_stage: result.workflow_stage }
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : 'No se pudo encolar el pipeline de idea.',
@@ -230,8 +230,8 @@ export async function approveStep(ideaId: string, step: number) {
     [step.toString()]: new Date().toISOString(),
   }
 
-  const nextStep = step < 8 ? step + 1 : step
-  const isFinalStep = step === 8
+  const nextStep = step < FINAL_IDEA_STEP_INDEX ? step + 1 : step
+  const isFinalStep = step === FINAL_IDEA_STEP_INDEX
 
   const { error } = await supabase
     .from('business_ideas')

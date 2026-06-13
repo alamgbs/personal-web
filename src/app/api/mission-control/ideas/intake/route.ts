@@ -69,8 +69,8 @@ export async function POST(request: Request) {
       intake_channel: payload.intakeChannel || null,
       notification_target: payload.notificationTarget || null,
       workflow_stage: 'idea_pipeline',
-      automation_status: payload.autoStart === false ? 'blocked' : 'queued',
-      automation_requested_at: payload.autoStart === false ? null : new Date().toISOString(),
+      automation_status: 'queued',
+      automation_requested_at: new Date().toISOString(),
     })
     .select('id, title, slug, workflow_stage, automation_status')
     .single()

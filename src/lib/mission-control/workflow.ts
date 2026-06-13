@@ -1,3 +1,5 @@
+import { TOTAL_IDEA_STEPS } from '@/lib/mission-control/idea-steps'
+
 export const IDEA_WORKFLOW_STAGES = [
   'idea_pipeline',
   'idea_review',
@@ -118,5 +120,5 @@ export function getCompletedIdeaStepCount(stepData: Record<string, unknown> | nu
 }
 
 export function isIdeaReadyForReview(stepData: Record<string, unknown> | null | undefined) {
-  return getCompletedIdeaStepCount(stepData) >= 9
+  return getCompletedIdeaStepCount(stepData) >= TOTAL_IDEA_STEPS
 }

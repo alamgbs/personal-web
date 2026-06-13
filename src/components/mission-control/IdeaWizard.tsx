@@ -63,7 +63,7 @@ function StepContent({
 }) {
   const initialContent = (savedData as Record<string, string>)?.content || ''
 
-  if (stepDef.isBMC) {
+  if (stepDef.kind === 'bmc') {
     const initialVals = (savedData as Record<string, string>) || {}
     return (
       <form
@@ -103,7 +103,7 @@ function StepContent({
     )
   }
 
-  if (stepDef.isPL) {
+  if (stepDef.kind === 'pnl') {
     const initialVals = (savedData as Record<string, string>) || {}
     return (
       <form
@@ -156,7 +156,7 @@ function StepContent({
     )
   }
 
-  if (stepDef.isCashFlow) {
+  if (stepDef.kind === 'cashflow') {
     const initialVals = (savedData as Record<string, string>) || {}
     return (
       <form
@@ -221,7 +221,7 @@ function StepContent({
     )
   }
 
-  if (stepDef.isTAM) {
+  if (stepDef.kind === 'tam') {
     const initialVals = (savedData as Record<string, string>) || {}
     return (
       <form

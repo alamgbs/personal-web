@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { createBusinessIdea } from '@/app/actions/ideas'
+import { TOTAL_IDEA_STEPS } from '@/lib/mission-control/idea-steps'
 import {
   getAutomationStatusLabel,
   getAutomationTone,
@@ -241,7 +242,7 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
                     fontSize: '10px',
                     color: 'var(--color-text-faint)',
                   }}>
-                    {completedSteps}/9 steps
+                    {completedSteps}/{TOTAL_IDEA_STEPS} steps
                   </span>
                 </div>
 
@@ -262,7 +263,7 @@ export function IdeaList({ ideas, selectedId, onSelect }: Props) {
                 }}>
                   <div style={{
                     height: '100%',
-                    width: `${(completedSteps / 9) * 100}%`,
+                    width: `${(completedSteps / TOTAL_IDEA_STEPS) * 100}%`,
                     background: 'var(--color-acid)',
                     borderRadius: '2px',
                     transition: 'width 0.3s',

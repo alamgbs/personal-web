@@ -3,7 +3,7 @@ import 'server-only'
 import { revalidatePath } from 'next/cache'
 import { createPrivilegedServerClient } from '@/lib/supabase/admin'
 import { generateIdeaStepWithHermes } from '@/lib/mission-control/idea-agent-runtime'
-import { IDEA_STEPS } from '@/lib/mission-control/idea-steps'
+import { FINAL_IDEA_STEP_INDEX, IDEA_STEPS } from '@/lib/mission-control/idea-steps'
 import { getIdeaStepAssignment, isIdeaStepComplete } from '@/lib/mission-control/ideas'
 import { generateProjectArtifactWithHermes } from '@/lib/mission-control/project-agent-runtime'
 import { isIdeaReadyForReview } from '@/lib/mission-control/workflow'
@@ -98,7 +98,7 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
         ...stepData,
         [step.toString()]: {
           ...(existing || {}),
-          content: generated.content,
+          ...generated.stepData,
           assigned_agent_slug: assignment.slug,
           assigned_agent_name: assignment.name,
           generated_at: generated.generated_at,
@@ -131,7 +131,7 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
       .from('business_ideas')
       .update({
         step_data: stepData,
-        current_step: readyForReview ? 8 : idea.current_step || 0,
+        current_step: readyForReview ? FINAL_IDEA_STEP_INDEX : idea.current_step || 0,
         workflow_stage: readyForReview ? 'idea_review' : 'idea_pipeline',
         automation_status: readyForReview ? 'needs_feedback' : 'completed',
         review_requested_at: readyForReview ? new Date().toISOString() : null,
