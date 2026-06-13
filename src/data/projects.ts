@@ -25,24 +25,85 @@ export const CLUSTERS: Cluster[] = [
 ]
 
 export const PROJECTS: Project[] = [
-  // ── Large ──
-  { id: 'kapi',     cl: 'vent', year: '2026',  title: 'KAPI',                  desc: 'Fintech educación financiera jóvenes.',                   descLong: 'Plataforma fintech orientada a la educación financiera de jóvenes. Diseño de producto, desarrollo full-stack con Next.js y estrategia de mercado desde cero.',                tags: ['Fintech', 'Next.js'],            size: 'lg' },
-  { id: 'rpa',      cl: 'auto', year: '2021',  title: 'RPA & SET',             desc: 'Extracción tributaria SET + segmentación.',               descLong: 'Automatización de extracción tributaria del sistema SET paraguayo mediante RPA. Procesamiento masivo de datos y segmentación de contribuyentes para análisis B2B.',           tags: ['RPA', 'Python'],                 size: 'lg' },
-  { id: 'obras',    cl: 'prod', year: '2026',  title: 'Gestión de Obras',      desc: 'Tracking y presupuesto para constructoras.',              descLong: 'Sistema de gestión de obras para constructoras: tracking de avance, control presupuestario y reportes en tiempo real. Producto digital completo desde descubrimiento hasta deploy.',  tags: ['Next.js', 'Supabase'],           size: 'lg' },
-  { id: 'karu',     cl: 'vent', year: '2025',  title: 'KaruLab',               desc: 'Meal prep + plataforma nutricional B2B/B2C.',             descLong: 'Emprendimiento de meal prep con plataforma digital para gestión nutricional. App móvil con Expo y backend Supabase, operando en modelo B2B y B2C.',                          tags: ['Expo', 'Supabase'],              size: 'lg' },
 
-  // ── Medium ──
-  { id: 'segted',   cl: 'data', year: '2021',  title: 'Segmentación Telco',    desc: 'Clusters por hábitos de consumo B2B/B2C.',                descLong: 'Segmentación de clientes de telecomunicaciones mediante clustering por hábitos de consumo. Modelos de ML aplicados a datos B2B y B2C para estrategias comerciales.',       tags: ['Python', 'ML'],                  size: 'md' },
-  { id: 'tudu',     cl: 'prod', year: '2024',  title: 'TUDU App',              desc: 'Plataforma gig commerce para oficios.',                   descLong: 'Diseño de producto para plataforma de gig commerce conectando profesionales de oficios con clientes. UX research, prototipado y validación.',                                 tags: ['UX', 'Product'],                 size: 'md' },
-  { id: 'asugreen', cl: 'data', year: '2021+', title: 'ASUGREEN',              desc: 'NDVI satélite + IoT. Google Earth Engine.',               descLong: 'Monitoreo ambiental combinando índices de vegetación NDVI por satélite con datos IoT en terreno. Procesamiento en Google Earth Engine para análisis geoespacial.',            tags: ['GEE', 'Python'],                 size: 'md' },
-  { id: 'bigdata',  cl: 'data', year: '2020',  title: 'Big Data — Olist',      desc: 'Spark + Azure sobre dataset de e-commerce.',              descLong: 'Pipeline de Big Data sobre dataset de e-commerce brasileño (Olist). Procesamiento distribuido con Apache Spark en Azure para análisis de patrones de compra.',                tags: ['Spark', 'Azure'],                size: 'md' },
+  // ── Automatización ──
+  { id: 'rpa',        cl: 'auto', year: '2021',  title: 'Clasificación Automática de Clientes',
+    desc: 'Extracción documental automática para clasificar clientes B2B o B2C.',
+    descLong: 'Desarrollé un sistema RPA que extrae datos del SET (sistema tributario paraguayo) eliminando la presentación física de documentos. La información obtenida —facturas, actividad fiscal, volumen— permitía etiquetar automáticamente a cada cliente como B2B o B2C, base para segmentación y estrategia comercial.',
+    tags: ['RPA', 'Python', 'SET'],  size: 'lg' },
 
-  // ── Small ──
-  { id: 'tesis',    cl: 'proc', year: '2018',  title: 'Tesis — Fitomedicina',  desc: 'Análisis termodinámico y modelado de extracción.',        tags: ['Termodinámica', 'I+D'],          size: 'sm' },
-  { id: 'nlp',      cl: 'data', year: '2019',  title: 'NLP & Sentiment',       desc: 'Twitter pre-IA, feature engineering puro.',               tags: ['NLP', 'Python'],                 size: 'sm' },
-  { id: 'uxab',     cl: 'prod', year: '2020',  title: 'UI/UX & A/B — Berlín',  desc: 'Diseño e experimentación de usuarios.',                   tags: ['UX', 'A/B Test'],                size: 'sm' },
-  { id: 'uhueal',   cl: 'vent', year: '2020',  title: 'Uhueal — Founder Inst.',desc: 'Aceleración internacional, Berlín.',                       tags: ['Startup'],                       size: 'sm' },
-  { id: 'real',     cl: 'des',  year: '2021',  title: 'Real Estate 3D',        desc: 'SketchUp + Lumion + Unreal Engine.',                      tags: ['3D', 'Unreal'],                  size: 'sm' },
+  { id: 'rutas',      cl: 'auto', year: '2022',  title: 'Optimización de Rutas de Reparto',
+    desc: 'Asignación automática de camiones y rutas para distribución gastronómica.',
+    descLong: 'Diseñé e implementé un algoritmo de asignación automática de vehículos para rutas de reparto gastronómico. El sistema optimiza recorridos minimizando tiempo y consumo de combustible, considerando ventanas horarias de entrega y capacidad de carga.',
+    tags: ['Python', 'Optimización', 'Logística'],  size: 'md' },
+
+  // ── Datos & IA ──
+  { id: 'segbanca',   cl: 'data', year: '2021',  title: 'Segmentación de Clientes Bancarios',
+    desc: 'Clasificación por hábitos de uso de tarjeta de crédito para campañas comerciales.',
+    descLong: 'Modelos de clustering aplicados al comportamiento de uso de TC en el sector bancario. La segmentación permitió categorizar clientes según sus patrones de consumo, mejorando la eficiencia y eficacia de ofertas y campañas comerciales dirigidas.',
+    tags: ['Python', 'ML', 'Clustering'],  size: 'lg' },
+
+  { id: 'asugreen',   cl: 'data', year: '2021+', title: 'ASUGREEN',
+    desc: 'NDVI satélite + IoT. Google Earth Engine.',
+    descLong: 'Monitoreo ambiental combinando índices de vegetación NDVI por satélite con datos IoT en terreno. Procesamiento en Google Earth Engine para análisis geoespacial de zonas urbanas y periurbanas.',
+    tags: ['GEE', 'Python', 'IoT'],  size: 'md' },
+
+  { id: 'bigdata',    cl: 'data', year: '2020',  title: 'Big Data — Olist',
+    desc: 'Spark + Azure sobre dataset de e-commerce brasileño.',
+    descLong: 'Pipeline de Big Data sobre dataset de e-commerce Olist. Procesamiento distribuido con Apache Spark en Azure para análisis de patrones de compra, logística y satisfacción de clientes.',
+    tags: ['Spark', 'Azure'],  size: 'md' },
+
+  { id: 'nlp',        cl: 'data', year: '2019',  title: 'NLP & Sentiment',
+    desc: 'Twitter pre-IA, feature engineering puro.',
+    tags: ['NLP', 'Python'],  size: 'sm' },
+
+  // ── Emprendimiento ──
+  { id: 'uhueal',     cl: 'vent', year: '2020',  title: 'Uhueal',
+    desc: 'Startup acelerada en Berlín — Founder Institute.',
+    descLong: 'Co-fundé Uhueal y la llevé al programa de aceleración Founder Institute en Berlín, una de las aceleradoras de startups más reconocidas a nivel global. El proceso incluyó validación de mercado, pitch internacional y desarrollo de modelo de negocio bajo mentoría de founders y VCs europeos.',
+    tags: ['Startup', 'Berlín', 'Founder Institute'],  size: 'lg' },
+
+  { id: 'karu',       cl: 'vent', year: '2025',  title: 'KaruLab',
+    desc: 'Meal prep + plataforma nutricional B2B/B2C.',
+    descLong: 'Emprendimiento de meal prep con plataforma digital para gestión nutricional. App móvil con Expo y backend Supabase, operando en modelo B2B (empresas) y B2C (personas).',
+    tags: ['Expo', 'Supabase'],  size: 'md' },
+
+  { id: 'proptech',   cl: 'vent', year: '2021',  title: 'PropSpace',
+    desc: 'Visualización 3D inmersiva para el mercado inmobiliario.',
+    descLong: 'Emprendimiento de proptech centrado en experiencias inmersivas para la venta y arriendo de propiedades. Producción de recorridos virtuales y renders hiperrealistas con SketchUp, Lumion y Unreal Engine para clientes del sector inmobiliario.',
+    tags: ['3D', 'Unreal', 'Proptech'],  size: 'sm' },
+
+  // ── Producto & UX ──
+  { id: 'obras',      cl: 'prod', year: '2026',  title: 'Gestión de Obras',
+    desc: 'Tracking y presupuesto en tiempo real para constructoras.',
+    descLong: 'Sistema de gestión de obras para constructoras: tracking de avance por etapa, control presupuestario y reportes en tiempo real. Producto digital completo desde discovery hasta deploy.',
+    tags: ['Next.js', 'Supabase'],  size: 'lg' },
+
+  { id: 'kapi',       cl: 'prod', year: '2026',  title: 'KAPI',
+    desc: 'Fintech de educación financiera para jóvenes.',
+    descLong: 'Plataforma fintech orientada a la educación financiera de jóvenes. Diseño de producto, desarrollo full-stack con Next.js y estrategia de go-to-market desde cero.',
+    tags: ['Fintech', 'Next.js'],  size: 'lg' },
+
+  { id: 'tudu',       cl: 'prod', year: '2024',  title: 'TUDU App',
+    desc: 'Marketplace de servicios para el hogar y oficios.',
+    descLong: 'Diseño de producto para plataforma que conecta profesionales de oficios con clientes que necesitan servicios. UX research, prototipado en Figma y validación con usuarios reales.',
+    tags: ['UX', 'Product', 'Figma'],  size: 'md' },
+
+  // ── Procesos ──
+  { id: 'tesis',      cl: 'proc', year: '2021',  title: 'Extracción de Cannabinoides — CBD',
+    desc: 'Proceso de destilación al vacío para producción fitomedicinal.',
+    descLong: 'Análisis termodinámico y diseño de un proceso de extracción de cannabinoides a baja temperatura (destilación al vacío), preservando las propiedades medicinales. El proyecto exploró cómo productizar la ley paraguaya vigente que habilita producción familiar y granjas, separando CBD del resto de la planta.',
+    tags: ['Termodinámica', 'Proceso', 'Fitomedicina'],  size: 'md' },
+
+  { id: 'l2o',        cl: 'proc', year: '2023',  title: 'Lead-to-Order & Order-to-Cash',
+    desc: 'Implementación de Salesforce para lanzamiento de productos B2B.',
+    descLong: 'Diseño e implementación del proceso Lead-to-Order y Order-to-Cash en una corporación B2B durante el lanzamiento de nuevos productos. Coordinación transversal con equipos comerciales, operaciones, finanzas y un equipo de desarrollo ágil externo. Plataforma: Salesforce CRM.',
+    tags: ['Salesforce', 'Procesos', 'B2B'],  size: 'md' },
+
+  { id: 'proveedores', cl: 'proc', year: '2022', title: 'Cadena de Abastecimiento Gastronómica',
+    desc: 'Recepción y pago de proveedores con cadena de frío y control de calidad.',
+    descLong: 'Diseño del proceso de recepción, validación y pago a proveedores de materia prima en el sector gastronómico. Incluyó protocolos de cadena de frío, control de calidad en puntos de recepción y flujo de aprobación de pagos.',
+    tags: ['Procesos', 'Supply Chain', 'Calidad'],  size: 'sm' },
 ]
 
 /** Get cluster metadata by id */

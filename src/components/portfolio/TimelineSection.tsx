@@ -3,11 +3,11 @@
 import React, { useRef, useEffect, useState } from 'react'
 
 const JOURNEY = [
-  { id: 'edu1',    period: '2013–2018', type: 'EDU',  org: 'Univ. Paraguayo Alemana', role: 'Ingeniería Industrial',   loc: 'Asunción PY',   desc: 'Carrera base. Termodinámica, procesos, estadística, gestión de operaciones y proyectos industriales.' },
+  { id: 'edu1',    period: '2017–2021', type: 'EDU',  org: 'Univ. Paraguayo Alemana', role: 'Ingeniería Industrial',   loc: 'Asunción PY',   desc: 'Carrera base. Termodinámica, procesos, estadística, gestión de operaciones y proyectos industriales.' },
   { id: 'hd',      period: '2019',      type: 'EDU',  org: 'Heidelberg',               role: 'Residencia Académica',    loc: 'Heidelberg DE', desc: 'Estadía internacional en ciencias aplicadas e investigación multidisciplinaria.' },
-  { id: 'sbc',     period: '2021',      type: 'WORK', org: 'SBC',                      role: 'Senior Project Manager',  loc: 'Asunción PY',   desc: 'Gestión de proyectos de automatización y datos B2B para clientes corporativos.' },
-  { id: 'tigo',    period: '2021–2024', type: 'WORK', org: 'Millicom · Tigo',          role: 'Datos & Auto. B2B',       loc: 'Asunción PY',   desc: 'Análisis de datos, RPA, segmentación clientes, dashboards Power BI, proyectos de innovación.' },
-  { id: 'ceragon', period: '2025–now',  type: 'WORK', org: 'Ceragon',                  role: 'PMO Manager LATAM',       loc: 'Asunción PY',   desc: 'Implementación y coordinación de proyectos de telecomunicaciones B2B en toda la región.' },
+  { id: 'sbc',     period: '2018–2019', type: 'WORK', org: 'SBC',                      role: 'Senior Project Manager',  loc: 'Asunción PY',   desc: 'Gestión de proyectos de automatización y datos B2B para clientes corporativos.' },
+  { id: 'tigo',    period: '2021–2025', type: 'WORK', org: 'Tigo PRY (Millicom)',      role: 'Datos & Auto. B2B',       loc: 'Asunción PY',   desc: 'Análisis de datos, RPA, segmentación clientes, dashboards Power BI, proyectos de innovación.' },
+  { id: 'ceragon', period: '2025–hoy',  type: 'WORK', org: 'Ceragon',                  role: 'PMO Manager LATAM',       loc: 'Asunción PY',   desc: 'Implementación y coordinación de proyectos de telecomunicaciones B2B en toda la región.' },
 ] as const
 
 type JourneyItem = typeof JOURNEY[number]

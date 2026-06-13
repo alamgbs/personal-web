@@ -154,8 +154,19 @@ export default function ProjectsGrid({ onNavigate }: ProjectsGridProps) {
             margin: 0,
           }}
         >
-          Proyectos seleccionados
+          Proyectos
         </h2>
+        <p
+          style={{
+            fontFamily: 'var(--font-body)',
+            fontSize: 'clamp(0.85rem,1.1vw,0.95rem)',
+            color: 'var(--color-text-faint)',
+            margin: '0.5rem 0 0 0',
+            lineHeight: 1.6,
+          }}
+        >
+          Algunos de mis trabajos
+        </p>
       </div>
 
       {/* Grid by category */}
