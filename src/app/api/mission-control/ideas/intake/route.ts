@@ -37,7 +37,21 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'title is required.' }, { status: 400 })
   }
 
-  const supabase = createAdminClient()
+  let supabase
+  try {
+    supabase = createAdminClient()
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Missing privileged Supabase credentials for intake route.',
+      },
+      { status: 500 }
+    )
+  }
+
   const slugBase = slugify(title)
   const slug = `${slugBase || 'idea'}-${Date.now().toString().slice(-6)}`
 
