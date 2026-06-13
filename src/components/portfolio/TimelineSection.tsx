@@ -47,17 +47,18 @@ function yearToX(year: number): number {
   return X_JOURNEY_START + ((year - YEAR_START) / (YEAR_END - YEAR_START)) * (X_NOW - X_JOURNEY_START)
 }
 
-/* Pre-compute milestone x positions, staggering same-year items */
+/* Pre-compute milestone positions: wider horizontal stagger + varying stem depth */
 const milestonePositions = (() => {
   const groups: Record<number, number> = {}
   const counts: Record<number, number> = {}
   PROJECT_MILESTONES.forEach(m => { counts[m.year] = (counts[m.year] || 0) + 1 })
   return PROJECT_MILESTONES.map(m => {
-    const idx = groups[m.year] ?? 0
+    const idx    = groups[m.year] ?? 0
     groups[m.year] = idx + 1
     const total  = counts[m.year]
-    const offset = (idx - (total - 1) / 2) * 34
-    return { ...m, x: yearToX(m.year) + offset }
+    const xOff   = (idx - (total - 1) / 2) * 80   // 80px between same-year siblings
+    const stemH  = 22 + idx * 16                    // each sibling hangs deeper
+    return { ...m, x: yearToX(m.year) + xOff, stemH }
   })
 })()
 
@@ -225,7 +226,7 @@ export default function TimelineSection() {
                 left:      m.x,
                 top:       lineY + '%',
                 width:     1,
-                height:    22,
+                height:    m.stemH,
                 background:'rgba(214,255,63,0.15)',
                 transform: 'translateX(-50%)',
               }} />
@@ -233,7 +234,7 @@ export default function TimelineSection() {
               <div style={{
                 position:     'absolute',
                 left:         m.x,
-                top:          `calc(${lineY}% + 22px)`,
+                top:          `calc(${lineY}% + ${m.stemH}px)`,
                 transform:    'translate(-50%, 0)',
                 width:        6,
                 height:       6,
@@ -245,7 +246,7 @@ export default function TimelineSection() {
               <div style={{
                 position:      'absolute',
                 left:          m.x,
-                top:           `calc(${lineY}% + 32px)`,
+                top:           `calc(${lineY}% + ${m.stemH + 10}px)`,
                 transform:     'translateX(-50%)',
                 fontFamily:    'var(--font-mono, monospace)',
                 fontSize:      8,
