@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { runIdeaPipelineAutomation } from '@/lib/mission-control/automation'
+import { queueIdeaPipelineAutomation } from '@/lib/mission-control/automation'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 type IntakePayload = {
@@ -81,14 +81,14 @@ export async function POST(request: Request) {
 
   if (payload.autoStart !== false) {
     try {
-      await runIdeaPipelineAutomation(data.id)
+      await queueIdeaPipelineAutomation(data.id)
     } catch (automationError) {
       return NextResponse.json(
         {
           error:
             automationError instanceof Error
               ? automationError.message
-              : 'La idea se creó, pero falló la automatización inicial.',
+              : 'La idea se creó, pero falló el encolado inicial.',
           idea: data,
         },
         { status: 500 }

@@ -161,6 +161,43 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
   }
 }
 
+export async function queueIdeaPipelineAutomation(
+  ideaId: string,
+  overrides: Partial<Pick<IdeaRow, 'current_step'>> = {}
+) {
+  const supabase = await createPrivilegedServerClient()
+
+  const updatePayload: {
+    workflow_stage: string
+    automation_status: string
+    automation_requested_at: string
+    automation_completed_at: null
+    review_requested_at: null
+    last_automation_error: null
+    current_step?: number
+  } = {
+    workflow_stage: 'idea_pipeline',
+    automation_status: 'queued',
+    automation_requested_at: new Date().toISOString(),
+    automation_completed_at: null,
+    review_requested_at: null,
+    last_automation_error: null,
+  }
+
+  if (typeof overrides.current_step === 'number') {
+    updatePayload.current_step = overrides.current_step
+  }
+
+  const { error } = await supabase.from('business_ideas').update(updatePayload).eq('id', ideaId)
+
+  if (error) {
+    throw new Error(error.message)
+  }
+
+  revalidatePath('/mission-control/ideas')
+  return { success: true, queued: true, workflow_stage: 'idea_pipeline' as const }
+}
+
 export async function ensureProjectForIdea(ideaId: string) {
   const supabase = await createPrivilegedServerClient()
   const idea = await fetchIdea(ideaId)

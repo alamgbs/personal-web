@@ -4,10 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { IDEA_STEPS } from '@/lib/mission-control/idea-steps'
 import { getIdeaStepAssignment, isIdeaStepComplete } from '@/lib/mission-control/ideas'
-import {
-  generateProjectPrd,
-  runIdeaPipelineAutomation,
-} from '@/lib/mission-control/automation'
+import { generateProjectPrd, queueIdeaPipelineAutomation } from '@/lib/mission-control/automation'
 import { isIdeaReadyForReview } from '@/lib/mission-control/workflow'
 
 export async function createQuickIdea(formData: FormData) {
@@ -91,13 +88,13 @@ export async function createBusinessIdea(formData: FormData) {
 
   if (autoStart) {
     try {
-      await runIdeaPipelineAutomation(idea.id)
+      await queueIdeaPipelineAutomation(idea.id)
     } catch (automationError) {
       return {
         error:
           automationError instanceof Error
             ? automationError.message
-            : 'La idea se creó, pero falló la automatización inicial.',
+            : 'La idea se creó, pero falló el encolado inicial.',
       }
     }
   }
@@ -168,16 +165,17 @@ export async function generateIdeaStepDraft(ideaId: string, step: number) {
   }
 
   try {
-    await runIdeaPipelineAutomation(ideaId)
+    await queueIdeaPipelineAutomation(ideaId, { current_step: step })
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : 'No se pudo generar el draft del paso.',
+      error: error instanceof Error ? error.message : 'No se pudo encolar el draft del paso.',
     }
   }
 
   revalidatePath('/mission-control/ideas')
   return {
     success: true,
+    queued: true,
     queued_step: step,
     step_label: IDEA_STEPS[step]?.label || `Paso ${step + 1}`,
   }
@@ -201,11 +199,11 @@ export async function generateIdeaAgentPipeline(ideaId: string) {
   }
 
   try {
-    const result = await runIdeaPipelineAutomation(ideaId)
-    return { success: true, generated_steps: 9, queued: false, workflow_stage: result.workflow_stage }
+    const result = await queueIdeaPipelineAutomation(ideaId)
+    return { success: true, generated_steps: 9, queued: true, workflow_stage: result.workflow_stage }
   } catch (error) {
     return {
-      error: error instanceof Error ? error.message : 'No se pudo ejecutar el pipeline de idea.',
+      error: error instanceof Error ? error.message : 'No se pudo encolar el pipeline de idea.',
     }
   }
 }
