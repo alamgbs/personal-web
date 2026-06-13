@@ -3,11 +3,13 @@
 import React, { useRef, useEffect, useState } from 'react'
 
 const JOURNEY = [
-  { id: 'edu1',    period: '2017–2021', type: 'EDU',  org: 'Univ. Paraguayo Alemana', role: 'Ingeniería Industrial',   loc: 'Asunción PY',   desc: 'Carrera base. Termodinámica, procesos, estadística, gestión de operaciones y proyectos industriales.' },
-  { id: 'hd',      period: '2019',      type: 'EDU',  org: 'Heidelberg',               role: 'Residencia Académica',    loc: 'Heidelberg DE', desc: 'Estadía internacional en ciencias aplicadas e investigación multidisciplinaria.' },
-  { id: 'sbc',     period: '2018–2019', type: 'WORK', org: 'SBC',                      role: 'Senior Project Manager',  loc: 'Asunción PY',   desc: 'Gestión de proyectos de automatización y datos B2B para clientes corporativos.' },
-  { id: 'tigo',    period: '2021–2025', type: 'WORK', org: 'Tigo PRY (Millicom)',      role: 'Datos & Auto. B2B',       loc: 'Asunción PY',   desc: 'Análisis de datos, RPA, segmentación clientes, dashboards Power BI, proyectos de innovación.' },
-  { id: 'ceragon', period: '2025–hoy',  type: 'WORK', org: 'Ceragon',                  role: 'PMO Manager LATAM',       loc: 'Asunción PY',   desc: 'Implementación y coordinación de proyectos de telecomunicaciones B2B en toda la región.' },
+  { id: 'edu1',    period: '2017–2021', type: 'EDU',  org: 'Univ. Paraguayo Alemana',            role: 'Ingeniería Industrial',       loc: 'Asunción PY',   desc: 'Carrera base. Termodinámica, procesos, estadística, gestión de operaciones y proyectos industriales.' },
+  { id: 'hd',      period: '2019',      type: 'EDU',  org: 'SRH Heidelberg',                     role: 'Residencia Académica',        loc: 'Heidelberg DE', desc: 'Estadía internacional en ciencias aplicadas e investigación multidisciplinaria.' },
+  { id: 'sbc',     period: '2018–2019', type: 'WORK', org: 'SBC',                                role: 'Senior Project Manager',      loc: 'Asunción PY',   desc: 'Gestión de proyectos de automatización y datos B2B para clientes corporativos.' },
+  { id: 'tigo',    period: '2021–2025', type: 'WORK', org: 'Tigo PRY (Millicom)',                role: 'Datos & Auto. B2B',           loc: 'Asunción PY',   desc: 'Análisis de datos, RPA, segmentación clientes, dashboards Power BI, proyectos de innovación.' },
+  { id: 'ucom',    period: '2023',      type: 'EDU',  org: 'UCOM',                               role: 'Posgrado Big Data Analytics', loc: 'Asunción PY',   desc: 'Posgrado en Big Data Analytics. Proyecto final: pipeline distribuido sobre dataset Olist con Apache Spark y Azure.' },
+  { id: 'ceragon', period: '2025–hoy',  type: 'WORK', org: 'Ceragon',                            role: 'PMO Manager LATAM',           loc: 'Asunción PY',   desc: 'Implementación y coordinación de proyectos de telecomunicaciones B2B en toda la región.' },
+  { id: 'master',  period: '2026',      type: 'EDU',  org: 'OBS Business School · U. Barcelona', role: 'Máster Project Management',   loc: 'Barcelona ES',  desc: 'Máster en Project Management con doble titulación. Herramientas ágiles, PMO, estrategia y liderazgo de proyectos complejos.' },
 ] as const
 
 const TYPE_COLOR: Record<string, string> = {
@@ -15,31 +17,33 @@ const TYPE_COLOR: Record<string, string> = {
   WORK: 'var(--color-coral, #ff6a3d)',
 }
 
-/* ── Project milestones (below line, acid) ── */
+/* ── Project milestones (below line, acid) ──
+   Years reflect chronological order of work done.
+   xAdj spreads items so no two stems share an x point (except bigdata-m + bigduc-c, intentionally paired). */
 const PROJECT_MILESTONES = [
-  { id: 'nlp-m',      year: 2018, label: 'NLP & Sentiment',   xAdj:   0 },
-  { id: 'uheal-m',    year: 2020, label: 'Uhueal',            xAdj:   0 },
-  { id: 'prop-m',     year: 2020, label: 'PropSpace',         xAdj:   0 },
-  { id: 'rutas-m',    year: 2021, label: 'Rutas Reparto',     xAdj:   0 },
-  { id: 'canna-m',    year: 2021, label: 'CBD Extracción',    xAdj:   0 },
-  { id: 'rpa-m',      year: 2022, label: 'Clasif. Clientes',  xAdj:   0 },
-  { id: 'bigdata-m',  year: 2022, label: 'Big Data Olist',    xAdj:   0 },
-  { id: 'tudu-m',     year: 2024, label: 'TUDU App',          xAdj:   0 },
-  { id: 'l2o-m',      year: 2024, label: 'Lead-to-Cash',      xAdj:   0 },
-  { id: 'abast-m',    year: 2024, label: 'Abastecimiento',    xAdj:   0 },
-  { id: 'asugreen-m', year: 2025, label: 'ASUGREEN',          xAdj:   0 },
-  { id: 'obras-m',    year: 2025, label: 'Gestión Obras',     xAdj:   0 },
-  { id: 'kapi-m',     year: 2026, label: 'KAPI',              xAdj: -40 }, // antes del master
+  { id: 'nlp-m',      year: 2018, label: 'NLP & Sentiment',  xAdj:    0 },
+  { id: 'uheal-m',    year: 2020, label: 'Uhueal',           xAdj:  -40 }, // left of SBC node
+  { id: 'prop-m',     year: 2020, label: 'PropSpace',        xAdj:  +40 }, // right of SBC node
+  { id: 'rutas-m',    year: 2021, label: 'Rutas Reparto',    xAdj:  -40 },
+  { id: 'canna-m',    year: 2021, label: 'CBD Extracción',   xAdj:  +40 },
+  { id: 'tudu-m',     year: 2022, label: 'TUDU App',         xAdj: +120 }, // first prod project
+  { id: 'rpa-m',      year: 2022, label: 'Clasif. Clientes', xAdj:  +40 },
+  { id: 'bigdata-m',  year: 2023, label: 'Big Data Olist',   xAdj: -120 }, // paired with UCOM cert above
+  { id: 'l2o-m',      year: 2023, label: 'Lead-to-Cash',     xAdj:  -40 },
+  { id: 'abast-m',    year: 2024, label: 'Abastecimiento',   xAdj:    0 },
+  { id: 'asugreen-m', year: 2025, label: 'ASUGREEN',         xAdj:    0 },
+  { id: 'obras-m',    year: 2025, label: 'Gestión Obras',    xAdj:  +80 },
+  { id: 'kapi-m',     year: 2026, label: 'KAPI',             xAdj:  -40 },
 ]
 
 /* ── Certification milestones (above line, bone) ── */
 const CERT_MILESTONES = [
-  { id: 'goog-c',    year: 2022, label: 'Google Transformation', xAdj:   0 },
-  { id: 'scrum-c',   year: 2022, label: 'Scrum Master · SA',     xAdj:   0 },
-  { id: 'bigduc-c',  year: 2023, label: 'Big Data · UCOM',       xAdj:   0 },
-  { id: 'etom-c',    year: 2023, label: 'eTOM Process',          xAdj:   0 },
-  { id: 'gb-c',      year: 2025, label: 'Green Belt · LSSI',     xAdj:   0 },
-  { id: 'master-c',  year: 2026, label: 'Master PM · OBS',       xAdj:  40 }, // después de KAPI
+  { id: 'goog-c',   year: 2022, label: 'Google Transformation', xAdj: -120 },
+  { id: 'scrum-c',  year: 2022, label: 'Scrum Master · SA',     xAdj:  -40 },
+  { id: 'bigduc-c', year: 2023, label: 'Big Data · UCOM',       xAdj: -120 }, // paired with Big Data Olist below
+  { id: 'etom-c',   year: 2023, label: 'eTOM Process',          xAdj:  +40 },
+  { id: 'gb-c',     year: 2025, label: 'Green Belt · LSSI',     xAdj:  -80 },
+  { id: 'master-c', year: 2026, label: 'Master PM · OBS',       xAdj:  +40 },
 ]
 
 const CARD_W          = 240
@@ -51,24 +55,20 @@ const TRACK_PAD_RIGHT = 900
 const YEAR_START = 2017
 const YEAR_END   = 2026
 const X_JOURNEY_START = TRACK_PAD_LEFT + 480                              // 640
-const X_NOW           = TRACK_PAD_LEFT + 480 + 5 * SPACING + 60           // 3300
+const X_NOW           = TRACK_PAD_LEFT + 480 + 6 * SPACING                 // 3760 (master node)
 
 function yearToX(year: number): number {
   return X_JOURNEY_START + ((year - YEAR_START) / (YEAR_END - YEAR_START)) * (X_NOW - X_JOURNEY_START)
 }
 
 function computePositions<T extends { year: number; xAdj: number }>(items: T[]) {
-  const groups: Record<number, number> = {}
-  const counts: Record<number, number> = {}
-  items.forEach(m => { counts[m.year] = (counts[m.year] || 0) + 1 })
-  return items.map(m => {
-    const idx  = groups[m.year] ?? 0
-    groups[m.year] = idx + 1
-    const total = counts[m.year]
-    const xOff  = (idx - (total - 1) / 2) * 80   // 80px between same-year siblings
-    const stemH = 22 + idx * 16                    // each sibling hangs deeper / higher
-    return { ...m, x: yearToX(m.year) + xOff + m.xAdj, stemH }
-  })
+  // xAdj values are manually assigned per item to guarantee no two stems share an x point.
+  // stemH is uniform so paired items (bigdata-m / bigduc-c) form symmetric whiskers.
+  return items.map(m => ({
+    ...m,
+    x:     yearToX(m.year) + m.xAdj,
+    stemH: 22,
+  }))
 }
 
 const milestonePositions = computePositions(PROJECT_MILESTONES)
@@ -476,10 +476,12 @@ export default function TimelineSection() {
                     whiteSpace:    'nowrap',
                     textTransform: 'uppercase',
                   }}>
-                    {i === 0 && '↗ primer salto internacional'}
-                    {i === 1 && '↗ entrada al mundo corporativo'}
+                    {i === 0 && '↗ intercambio internacional'}
+                    {i === 1 && '→ primer empleo'}
                     {i === 2 && '→ telecom & datos B2B'}
-                    {i === 3 && '→ LATAM scale'}
+                    {i === 3 && '↗ profundización académica'}
+                    {i === 4 && '→ LATAM scale'}
+                    {i === 5 && '↗ doble titulación'}
                   </div>
                 )}
               </div>
