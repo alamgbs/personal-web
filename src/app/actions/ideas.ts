@@ -4,7 +4,11 @@ import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { deleteIdeaGraph } from '@/lib/mission-control/idea-deletion'
 import { FINAL_IDEA_STEP_INDEX, IDEA_STEPS, TOTAL_IDEA_STEPS } from '@/lib/mission-control/idea-steps'
-import { getIdeaStepAssignment, isIdeaStepComplete } from '@/lib/mission-control/ideas'
+import {
+  getIdeaStepAssignment,
+  isIdeaStepComplete,
+  normalizeIdeaStepPayloadForSave,
+} from '@/lib/mission-control/ideas'
 import { generateProjectPrd, queueIdeaPipelineAutomation } from '@/lib/mission-control/automation'
 import { isIdeaReadyForReview } from '@/lib/mission-control/workflow'
 
@@ -116,11 +120,13 @@ export async function saveStepData(ideaId: string, step: number, data: Record<st
   if (fetchError) return { error: fetchError.message }
 
   const currentStepData = (idea?.step_data as Record<string, unknown>) || {}
+  const existingStep = (currentStepData[step.toString()] as Record<string, unknown> | undefined) || {}
+  const normalizedStepPayload = normalizeIdeaStepPayloadForSave(step, existingStep, data)
   const assignment = getIdeaStepAssignment(step)
   const updated = {
     ...currentStepData,
     [step.toString()]: {
-      ...data,
+      ...normalizedStepPayload,
       assigned_agent_slug: assignment.slug,
       assigned_agent_name: assignment.name,
     },
@@ -221,7 +227,7 @@ export async function approveStep(ideaId: string, step: number) {
   if (fetchError) return { error: fetchError.message }
 
   const stepData = ((idea?.step_data as Record<string, unknown>) || {})[step.toString()] as Record<string, unknown> | undefined
-  if (!isIdeaStepComplete(stepData)) {
+  if (!isIdeaStepComplete(step, stepData)) {
     return { error: 'Este paso está vacío. Espera a que la automatización complete el draft antes de aprobarlo.' }
   }
 
@@ -270,6 +276,25 @@ export async function approveStep(ideaId: string, step: number) {
 
 export async function promoteToBacklog(ideaId: string) {
   const supabase = await createClient()
+
+  const { data: idea, error: fetchError } = await supabase
+    .from('business_ideas')
+    .select('step_approvals, promoted_project_id')
+    .eq('id', ideaId)
+    .single()
+
+  if (fetchError) {
+    return { error: fetchError.message }
+  }
+
+  const approvals = (idea?.step_approvals as Record<string, unknown>) || {}
+  if (!approvals[FINAL_IDEA_STEP_INDEX.toString()]) {
+    return { error: 'Aprueba primero el paso final de Go / No-Go antes de crear el proyecto.' }
+  }
+
+  if (idea?.promoted_project_id) {
+    return { success: true, already_promoted: true }
+  }
 
   const { error } = await supabase
     .from('business_ideas')

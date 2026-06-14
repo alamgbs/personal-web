@@ -9,7 +9,21 @@ import {
   promoteToBacklog,
   saveStepData,
 } from '@/app/actions/ideas'
-import { IDEA_STEPS } from '@/lib/mission-control/idea-steps'
+import {
+  ALL_CASHFLOW_ROWS,
+  BMC_FIELDS,
+  CASHFLOW_INFLOW_ROWS,
+  CASHFLOW_OUTFLOW_ROWS,
+  CASHFLOW_PERIODS,
+  CUSTOMER_ARCHETYPE_FIELDS,
+  FINAL_IDEA_STEP_INDEX,
+  IDEA_STEPS,
+  MOAT_FIELDS,
+  PNL_COMPUTED_ROWS,
+  PNL_INPUT_GROUPS,
+  TAM_FIELDS,
+  TOTAL_IDEA_STEPS,
+} from '@/lib/mission-control/idea-steps'
 import { getIdeaStepAssignment, normalizeIdeaStepData } from '@/lib/mission-control/ideas'
 import {
   getAutomationStatusLabel,
@@ -40,15 +54,6 @@ type Props = {
 
 const STEPS = IDEA_STEPS
 
-const BMC_BLOCKS = [
-  ['Socios Clave', 'Actividades Clave', 'Propuesta de Valor'],
-  ['Recursos Clave', 'Relaciones con Clientes', 'Segmentos de Clientes'],
-  ['Estructura de Costos', 'Canales', 'Flujos de Ingresos'],
-]
-
-const PL_ROWS = ['Ingresos', 'COGS', 'Margen Bruto', 'OpEx Total', 'EBITDA', 'Resultado Neto']
-const MONTHS = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-
 function StepContent({
   step,
   stepDef,
@@ -64,6 +69,37 @@ function StepContent({
 }) {
   const initialContent = (savedData as Record<string, string>)?.content || ''
 
+  if (stepDef.kind === 'customer-archetype') {
+    const initialVals = (savedData as Record<string, string>) || {}
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          const fd = new FormData(e.currentTarget)
+          onSave(buildTextFieldPayload(fd, CUSTOMER_ARCHETYPE_FIELDS))
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+      >
+        <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
+          {CUSTOMER_ARCHETYPE_FIELDS.map((field) => (
+            <div key={field.key} style={structuredCardStyle}>
+              <label style={bmcLabelStyle}>{field.label}</label>
+              <textarea
+                name={field.key}
+                defaultValue={initialVals[field.key] || ''}
+                rows={3}
+                placeholder={field.placeholder || `Describe ${field.label.toLowerCase()}...`}
+                style={textareaStyle}
+              />
+            </div>
+          ))}
+        </div>
+        {btnRow(saving)}
+      </form>
+    )
+  }
+
   if (stepDef.kind === 'bmc') {
     const initialVals = (savedData as Record<string, string>) || {}
     return (
@@ -71,29 +107,20 @@ function StepContent({
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
-          const data: Record<string, string> = { content: (fd.get('content') as string) || '' }
-          BMC_BLOCKS.flat().forEach((block) => {
-            data[block] = (fd.get(block) as string) || ''
-          })
-          onSave(data)
+          onSave(buildTextFieldPayload(fd, BMC_FIELDS))
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-          {BMC_BLOCKS.flat().map((block) => (
-            <div key={block} style={{
-              background: 'var(--color-surface-2)',
-              border: '1px solid var(--color-border)',
-              borderRadius: '6px',
-              padding: '10px',
-            }}>
-              <label style={bmcLabelStyle}>{block}</label>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
+          {BMC_FIELDS.map((field) => (
+            <div key={field.key} style={structuredCardStyle}>
+              <label style={bmcLabelStyle}>{field.label}</label>
               <textarea
-                name={block}
-                defaultValue={initialVals[block] || ''}
+                name={field.key}
+                defaultValue={initialVals[field.key] || ''}
                 rows={4}
-                placeholder={`Describe ${block.toLowerCase()}...`}
+                placeholder={field.placeholder || `Describe ${field.label.toLowerCase()}...`}
                 style={textareaStyle}
               />
             </div>
@@ -106,14 +133,13 @@ function StepContent({
 
   if (stepDef.kind === 'pnl') {
     const initialVals = (savedData as Record<string, string>) || {}
+    const totals = computePnlTotals(initialVals)
     return (
       <form
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
-          const data: Record<string, string> = { content: (fd.get('content') as string) || '' }
-          PL_ROWS.forEach((row) => { data[row] = (fd.get(row) as string) || '' })
-          onSave(data)
+          onSave(buildTextFieldPayload(fd, PNL_INPUT_GROUPS.flatMap((group) => group.rows)))
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
       >
@@ -126,27 +152,42 @@ function StepContent({
             </tr>
           </thead>
           <tbody>
-            {PL_ROWS.map((row) => (
-              <tr key={row} style={{ borderBottom: '1px solid rgba(42,42,38,0.5)' }}>
-                <td style={{ padding: '6px 8px', color: 'var(--color-text)' }}>{row}</td>
-                <td style={{ padding: '4px 8px' }}>
-                  <input
-                    name={row}
-                    type="text"
-                    defaultValue={initialVals[row] || ''}
-                    placeholder="0"
-                    style={{
-                      width: '100%',
-                      background: 'var(--color-surface-2)',
-                      border: '1px solid var(--color-border)',
-                      borderRadius: '3px',
-                      padding: '4px 8px',
-                      color: 'var(--color-acid)',
-                      fontFamily: 'var(--font-mono)',
-                      fontSize: '12px',
-                      textAlign: 'right',
-                    }}
-                  />
+            {PNL_INPUT_GROUPS.map((group) => (
+              <>
+                <tr key={`${group.label}-header`} style={{ borderBottom: '1px solid rgba(42,42,38,0.5)' }}>
+                  <td colSpan={2} style={{ padding: '8px', color: 'var(--color-acid)', fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>{group.label}</td>
+                </tr>
+                {group.rows.map((row) => (
+                  <tr key={row.key} style={{ borderBottom: '1px solid rgba(42,42,38,0.5)' }}>
+                    <td style={{ padding: '6px 8px', color: 'var(--color-text)' }}>{row.label}</td>
+                    <td style={{ padding: '4px 8px' }}>
+                      <input
+                        name={row.key}
+                        type="text"
+                        defaultValue={initialVals[row.key] || ''}
+                        placeholder="0"
+                        style={{
+                          width: '100%',
+                          background: 'var(--color-surface-2)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: '3px',
+                          padding: '4px 8px',
+                          color: getToneColor(row.tone),
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '12px',
+                          textAlign: 'right',
+                        }}
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </>
+            ))}
+            {PNL_COMPUTED_ROWS.map((row) => (
+              <tr key={row.key} style={{ borderBottom: '1px solid rgba(42,42,38,0.5)' }}>
+                <td style={{ padding: '6px 8px', color: 'var(--color-text-faint)' }}>{row.label}</td>
+                <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--color-text)', fontWeight: 700 }}>
+                  {formatMoney(totals[row.key] || 0)}
                 </td>
               </tr>
             ))}
@@ -164,56 +205,74 @@ function StepContent({
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
-          const data: Record<string, string> = { content: (fd.get('content') as string) || '' }
-          MONTHS.forEach((m) => {
-            data[`in_${m}`] = (fd.get(`in_${m}`) as string) || ''
-            data[`out_${m}`] = (fd.get(`out_${m}`) as string) || ''
-          })
-          onSave(data)
+          onSave(buildCashflowPayload(fd))
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '11px', minWidth: '800px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '11px', minWidth: '1280px' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
                 <th style={cfHeaderStyle}>Concepto</th>
-                {MONTHS.map((m) => (
-                  <th key={m} style={cfHeaderStyle}>{m}</th>
+                {CASHFLOW_PERIODS.map((period) => (
+                  <th key={period} style={cfHeaderStyle}>{period}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {['Ingresos', 'Egresos'].map((label, ri) => (
-                <tr key={label} style={{ borderBottom: '1px solid rgba(42,42,38,0.5)' }}>
-                  <td style={{ padding: '5px 8px', color: label === 'Ingresos' ? 'var(--color-acid)' : 'var(--color-coral)', fontSize: '11px' }}>{label}</td>
-                  {MONTHS.map((m) => {
-                    const key = `${ri === 0 ? 'in' : 'out'}_${m}`
+              <tr style={{ borderBottom: '1px solid rgba(42,42,38,0.5)' }}>
+                <td colSpan={CASHFLOW_PERIODS.length + 1} style={{ padding: '8px', color: 'var(--color-acid)', fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Ingresos de caja</td>
+              </tr>
+              {CASHFLOW_INFLOW_ROWS.map((row) => (
+                <tr key={row.key} style={{ borderBottom: '1px solid rgba(42,42,38,0.5)' }}>
+                  <td style={{ padding: '5px 8px', color: getToneColor(row.tone), fontSize: '11px' }}>{row.label}</td>
+                  {CASHFLOW_PERIODS.map((period) => {
+                    const key = `${row.key}__${period}`
                     return (
-                      <td key={m} style={{ padding: '3px 4px' }}>
+                      <td key={key} style={{ padding: '3px 4px' }}>
                         <input
                           name={key}
                           type="text"
                           defaultValue={initialVals[key] || ''}
                           placeholder="0"
-                          style={{
-                            width: '60px',
-                            background: 'var(--color-surface-2)',
-                            border: '1px solid var(--color-border)',
-                            borderRadius: '3px',
-                            padding: '3px 5px',
-                            color: ri === 0 ? 'var(--color-acid)' : 'var(--color-coral)',
-                            fontFamily: 'var(--font-mono)',
-                            fontSize: '11px',
-                            textAlign: 'right',
-                          }}
+                          style={cashflowInputStyle(row.tone)}
                         />
                       </td>
                     )
                   })}
                 </tr>
               ))}
+              <tr style={{ borderBottom: '1px solid rgba(42,42,38,0.5)' }}>
+                <td colSpan={CASHFLOW_PERIODS.length + 1} style={{ padding: '8px', color: 'var(--color-coral)', fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Egresos de caja</td>
+              </tr>
+              {CASHFLOW_OUTFLOW_ROWS.map((row) => (
+                <tr key={row.key} style={{ borderBottom: '1px solid rgba(42,42,38,0.5)' }}>
+                  <td style={{ padding: '5px 8px', color: getToneColor(row.tone), fontSize: '11px' }}>{row.label}</td>
+                  {CASHFLOW_PERIODS.map((period) => {
+                    const key = `${row.key}__${period}`
+                    return (
+                      <td key={key} style={{ padding: '3px 4px' }}>
+                        <input
+                          name={key}
+                          type="text"
+                          defaultValue={initialVals[key] || ''}
+                          placeholder="0"
+                          style={cashflowInputStyle(row.tone)}
+                        />
+                      </td>
+                    )
+                  })}
+                </tr>
+              ))}
+              <tr>
+                <td style={{ padding: '6px 8px', color: 'var(--color-text-faint)' }}>Caja neta por período</td>
+                {CASHFLOW_PERIODS.map((period) => (
+                  <td key={`net-${period}`} style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--color-text)' }}>
+                    {formatMoney(computeCashflowNet(initialVals, period))}
+                  </td>
+                ))}
+              </tr>
             </tbody>
           </table>
         </div>
@@ -224,72 +283,63 @@ function StepContent({
 
   if (stepDef.kind === 'tam') {
     const initialVals = (savedData as Record<string, string>) || {}
+    const narrativeFields = TAM_FIELDS.filter((field) => !field.key.endsWith('_num') && field.key !== 'methodology')
     return (
       <form
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
-          onSave({
-            content: (fd.get('content') as string) || '',
-            tam: fd.get('tam'),
-            tam_num: fd.get('tam_num'),
-            sam: fd.get('sam'),
-            sam_num: fd.get('sam_num'),
-            som: fd.get('som'),
-            som_num: fd.get('som_num'),
-            methodology: fd.get('methodology'),
-          })
+          onSave(buildTextFieldPayload(fd, TAM_FIELDS))
         }}
         style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
-        {[
-          { key: 'tam', label: 'TAM — Total Addressable Market', color: 'var(--color-acid)' },
-          { key: 'sam', label: 'SAM — Serviceable Addressable Market', color: 'var(--color-coral)' },
-          { key: 'som', label: 'SOM — Serviceable Obtainable Market', color: '#60a5fa' },
-        ].map(({ key, label, color }) => (
-          <div key={key} style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr auto',
-            gap: '8px',
-            background: 'var(--color-surface-2)',
-            border: '1px solid var(--color-border)',
-            borderRadius: '6px',
-            padding: '10px',
-          }}>
-            <div>
-              <label style={{ ...bmcLabelStyle, color }}>{label}</label>
-              <textarea
-                name={key}
-                defaultValue={initialVals[key] || ''}
-                rows={2}
-                placeholder="Describe la metodología de estimación..."
-                style={textareaStyle}
-              />
+        {narrativeFields.map((field) => {
+          const amountKey = `${field.key}_num`
+          return (
+            <div key={field.key} style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr auto',
+              gap: '8px',
+              background: 'var(--color-surface-2)',
+              border: '1px solid var(--color-border)',
+              borderRadius: '6px',
+              padding: '10px',
+            }}>
+              <div>
+                <label style={{ ...bmcLabelStyle, color: getToneColor(field.tone) }}>{field.label}</label>
+                <textarea
+                  name={field.key}
+                  defaultValue={initialVals[field.key] || ''}
+                  rows={2}
+                  placeholder={field.placeholder || 'Describe la metodología de estimación...'}
+                  style={textareaStyle}
+                />
+              </div>
+              <div>
+                <label style={bmcLabelStyle}>USD</label>
+                <input
+                  name={amountKey}
+                  type="text"
+                  defaultValue={initialVals[amountKey] || ''}
+                  placeholder="$0M"
+                  style={{
+                    width: '90px',
+                    background: 'var(--color-surface-1)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: '4px',
+                    padding: '6px 8px',
+                    color: getToneColor(field.tone),
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: '14px',
+                    fontWeight: 700,
+                    textAlign: 'center',
+                  }}
+                />
+              </div>
             </div>
-            <div>
-              <label style={bmcLabelStyle}>USD</label>
-              <input
-                name={`${key}_num`}
-                type="text"
-                defaultValue={initialVals[`${key}_num`] || ''}
-                placeholder="$0M"
-                style={{
-                  width: '90px',
-                  background: 'var(--color-surface-1)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: '4px',
-                  padding: '6px 8px',
-                  color,
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '14px',
-                  fontWeight: 700,
-                  textAlign: 'center',
-                }}
-              />
-            </div>
-          </div>
-        ))}
+          )
+        })}
 
         <div>
           <label style={bmcLabelStyle}>Metodología de Sizing</label>
@@ -302,6 +352,37 @@ function StepContent({
           />
         </div>
 
+        {btnRow(saving)}
+      </form>
+    )
+  }
+
+  if (stepDef.kind === 'moat') {
+    const initialVals = (savedData as Record<string, string>) || {}
+    return (
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          const fd = new FormData(e.currentTarget)
+          onSave(buildTextFieldPayload(fd, MOAT_FIELDS))
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+      >
+        <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
+          {MOAT_FIELDS.map((field) => (
+            <div key={field.key} style={structuredCardStyle}>
+              <label style={bmcLabelStyle}>{field.label}</label>
+              <textarea
+                name={field.key}
+                defaultValue={initialVals[field.key] || ''}
+                rows={3}
+                placeholder={field.placeholder || `Describe ${field.label.toLowerCase()}...`}
+                style={textareaStyle}
+              />
+            </div>
+          ))}
+        </div>
         {btnRow(saving)}
       </form>
     )
@@ -354,6 +435,110 @@ function StepContent({
       {btnRow(saving)}
     </form>
   )
+}
+
+function buildTextFieldPayload(formData: FormData, fields: Array<{ key: string }>) {
+  const payload: Record<string, string> = {
+    content: String(formData.get('content') || ''),
+  }
+
+  for (const field of fields) {
+    payload[field.key] = String(formData.get(field.key) || '')
+  }
+
+  return payload
+}
+
+function buildCashflowPayload(formData: FormData) {
+  const payload: Record<string, string> = {
+    content: String(formData.get('content') || ''),
+  }
+
+  for (const field of ALL_CASHFLOW_ROWS) {
+    for (const period of CASHFLOW_PERIODS) {
+      const key = `${field.key}__${period}`
+      payload[key] = String(formData.get(key) || '')
+    }
+  }
+
+  return payload
+}
+
+function parseMoney(value: string | number | undefined) {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0
+  if (typeof value !== 'string') return 0
+
+  const normalized = value.replace(/[^0-9.,-]/g, '').replace(/,/g, '')
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function computePnlTotals(values: Record<string, string>) {
+  const totals = {
+    total_revenue: 0,
+    total_cogs: 0,
+    gross_profit: 0,
+    total_opex: 0,
+    ebitda: 0,
+    net_income: 0,
+  }
+
+  for (const group of PNL_INPUT_GROUPS) {
+    for (const row of group.rows) {
+      const amount = parseMoney(values[row.key])
+      if (group.label === 'Ingresos') totals.total_revenue += amount
+      if (group.label === 'Costo directo') totals.total_cogs += amount
+      if (group.label === 'Gasto operativo') totals.total_opex += amount
+      if (row.key === 'taxes') totals.net_income -= amount
+    }
+  }
+
+  totals.gross_profit = totals.total_revenue - totals.total_cogs
+  totals.ebitda = totals.gross_profit - totals.total_opex
+  totals.net_income += totals.ebitda
+
+  return totals
+}
+
+function computeCashflowNet(values: Record<string, string>, period: string) {
+  const inflows = CASHFLOW_INFLOW_ROWS.reduce((sum, row) => sum + parseMoney(values[`${row.key}__${period}`]), 0)
+  const outflows = CASHFLOW_OUTFLOW_ROWS.reduce((sum, row) => sum + parseMoney(values[`${row.key}__${period}`]), 0)
+  return inflows - outflows
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value)
+}
+
+function getToneColor(tone: 'default' | 'acid' | 'coral' | 'blue' | undefined) {
+  switch (tone) {
+    case 'acid':
+      return 'var(--color-acid)'
+    case 'coral':
+      return 'var(--color-coral)'
+    case 'blue':
+      return '#60a5fa'
+    default:
+      return 'var(--color-text)'
+  }
+}
+
+function cashflowInputStyle(tone: 'default' | 'acid' | 'coral' | 'blue' | undefined): React.CSSProperties {
+  return {
+    width: '72px',
+    background: 'var(--color-surface-2)',
+    border: '1px solid var(--color-border)',
+    borderRadius: '3px',
+    padding: '3px 5px',
+    color: getToneColor(tone),
+    fontFamily: 'var(--font-mono)',
+    fontSize: '11px',
+    textAlign: 'right',
+  }
 }
 
 function AgentDraftField({ defaultValue, stepLabel }: { defaultValue: string; stepLabel: string }) {
@@ -478,7 +663,7 @@ export function IdeaWizard({ idea }: Props) {
       setError(result.error)
     } else {
       setSuccess(`Paso ${activeStep + 1} aprobado`)
-      if (activeStep < 8) setActiveStep(activeStep + 1)
+      if (activeStep < FINAL_IDEA_STEP_INDEX) setActiveStep(activeStep + 1)
       setTimeout(() => setSuccess(null), 3000)
     }
   }
@@ -626,10 +811,10 @@ export function IdeaWizard({ idea }: Props) {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-acid)' }}>
-            Paso {activeStep + 1}/9 — {STEPS[activeStep]?.label}
+            Paso {activeStep + 1}/{TOTAL_IDEA_STEPS} — {STEPS[activeStep]?.label}
           </span>
           <span style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: 'var(--color-text-faint)' }}>
-            {Object.keys(stepApprovals).length}/9 aprobados · {completedSteps}/9 drafts completos
+            {Object.keys(stepApprovals).length}/{TOTAL_IDEA_STEPS} aprobados · {completedSteps}/{TOTAL_IDEA_STEPS} drafts completos
           </span>
         </div>
       </div>
@@ -781,8 +966,8 @@ export function IdeaWizard({ idea }: Props) {
         </button>
 
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          {/* If last step (8), show promote button */}
-          {activeStep === 8 && isStepApproved(8) && status !== 'in_development' && (
+          {/* If final step, show promote button */}
+          {activeStep === FINAL_IDEA_STEP_INDEX && isStepApproved(FINAL_IDEA_STEP_INDEX) && status !== 'in_development' && (
             <button
               onClick={handlePromoteToBacklog}
               disabled={promoting}
@@ -810,13 +995,13 @@ export function IdeaWizard({ idea }: Props) {
               disabled={approving}
               style={approveStyle}
             >
-              {approving ? 'Aprobando...' : activeStep === 8 ? '✓ Aprobar Go/No-Go' : '✓ Aprobar y continuar →'}
+              {approving ? 'Aprobando...' : activeStep === FINAL_IDEA_STEP_INDEX ? '✓ Aprobar Go/No-Go' : '✓ Aprobar y continuar →'}
             </button>
           )}
 
-          {isStepApproved(activeStep) && activeStep < 8 && (
+          {isStepApproved(activeStep) && activeStep < FINAL_IDEA_STEP_INDEX && (
             <button
-              onClick={() => setActiveStep((s) => Math.min(8, s + 1))}
+              onClick={() => setActiveStep((s) => Math.min(FINAL_IDEA_STEP_INDEX, s + 1))}
               style={nextStyle}
             >
               Siguiente paso →
@@ -908,6 +1093,13 @@ const bmcLabelStyle: React.CSSProperties = {
   textTransform: 'uppercase',
   color: 'var(--color-acid)',
   marginBottom: '6px',
+}
+
+const structuredCardStyle: React.CSSProperties = {
+  background: 'var(--color-surface-2)',
+  border: '1px solid var(--color-border)',
+  borderRadius: '6px',
+  padding: '10px',
 }
 
 const cfHeaderStyle: React.CSSProperties = {
