@@ -16,13 +16,19 @@ function slugify(input: string) {
 }
 
 export async function POST(request: Request) {
-  const token = process.env.MISSION_CONTROL_AUTOMATION_TOKEN
+  const token = process.env.MISSION_CONTROL_AUTOMATION_TOKEN?.trim()
 
-  if (token) {
-    const authHeader = request.headers.get('authorization')
-    if (authHeader !== `Bearer ${token}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  if (!token) {
+    console.error('[mission-control/intake] Missing MISSION_CONTROL_AUTOMATION_TOKEN')
+    return NextResponse.json(
+      { error: 'Mission Control intake is not configured securely.' },
+      { status: 500 }
+    )
+  }
+
+  const authHeader = request.headers.get('authorization')
+  if (authHeader !== `Bearer ${token}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   let payload: IntakePayload
