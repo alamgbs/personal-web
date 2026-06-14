@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { promisify } from 'node:util'
 import { execFile } from 'node:child_process'
 import {
@@ -6,15 +7,22 @@ import {
   BMC_FIELDS,
   CASHFLOW_PERIODS,
   CUSTOMER_ARCHETYPE_FIELDS,
+  CUSTOMER_JOURNEY_FIELDS,
+  GO_NO_GO_FIELDS,
   IDEA_STEPS,
   MOAT_FIELDS,
+  PROBLEM_DEFINITION_FIELDS,
   TAM_FIELDS,
   TOTAL_IDEA_STEPS,
 } from '@/lib/mission-control/idea-steps'
-import { normalizeGeneratedStepPayload } from '@/lib/mission-control/ideas'
+import { getFieldLabelMap, getMissingStructuredFields, normalizeGeneratedStepPayload } from '@/lib/mission-control/ideas'
 import type { AgentRow } from '@/lib/mission-control/agents'
 
 const execFileAsync = promisify(execFile)
+const HERMES_BIN_CANDIDATES = [process.env.HERMES_CLI_PATH, '/usr/local/lib/hermes-agent/venv/bin/hermes', 'hermes'].filter(
+  Boolean
+) as string[]
+const MAX_GENERATION_ATTEMPTS = 2
 
 export type IdeaGenerationContext = {
   title: string
@@ -49,92 +57,130 @@ export async function generateIdeaStepWithHermes(params: {
 
   const schema = buildJsonSchemaHint(params.idea.step)
   const stepSpecificGuidance = buildStepSpecificGuidance(params.idea.step)
+  let previousAttemptNote = ''
 
-  const prompt = [
-    `Eres ${params.agent.name} dentro de Mission Control.`,
-    `Tu rol: ${params.agent.role}.`,
-    params.agent.team ? `Equipo: ${params.agent.team}.` : null,
-    params.agent.soul_short ? `Soul: ${params.agent.soul_short}` : null,
-    params.agent.skills?.length ? `Skills: ${params.agent.skills.join(', ')}.` : null,
-    params.agent.responsibilities?.length ? `Responsabilidades: ${params.agent.responsibilities.join(', ')}.` : null,
-    '',
-    'Objetivo:',
-    `Genera el análisis del paso ${params.idea.step + 1}/${TOTAL_IDEA_STEPS} para la idea de negocio "${params.idea.title}".`,
-    params.idea.summary ? `Resumen de la idea: ${params.idea.summary}` : 'Resumen de la idea: no provisto.',
-    '',
-    `Paso actual: ${stepDefinition.label}`,
-    `Hint: ${stepDefinition.hint}`,
-    'Marco metodológico: usa un nivel de profundidad tipo Moonshot/ITTI (KAPI 2026): respuestas específicas, estructuradas, cuantificadas y listas para discusión ejecutiva.',
-    stepDefinition.questions.length
-      ? `Preguntas guía:\n${stepDefinition.questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`
-      : 'Preguntas guía: usa criterio experto para completar este paso con suficiente sustancia para aprobación ejecutiva.',
-    '',
-    priorContext ? `Contexto ya resuelto:\n${priorContext}` : 'Contexto ya resuelto: este es el primer paso.',
-    currentDraft ? `Borrador actual del paso a revisar:\n${currentDraft}` : 'Borrador actual del paso: no existe uno previo o debe generarse desde cero.',
-    pendingFeedback
-      ? `Feedback explícito del usuario para este paso (debes incorporarlo de forma prioritaria):\n${pendingFeedback}`
-      : 'Feedback explícito del usuario para este paso: no provisto.',
-    '',
-    'Reglas obligatorias:',
-    '- Responde solo en español.',
-    '- No hables de ti mismo ni menciones que eres una IA.',
-    '- Usa TODOS los campos dedicados del paso cuando existan; no concentres la respuesta en un solo bloque de texto.',
-    '- Si existe feedback explícito del usuario para este paso, úsalo como instrucción prioritaria para corregir y rehacer el draft.',
-    '- Si un campo requiere números o supuestos, complétalos con estimaciones razonables y explícitas.',
-    '- Devuelve ÚNICAMENTE un objeto JSON válido. Sin markdown, sin fences, sin texto extra antes o después.',
-    '- El JSON debe incluir siempre la clave "content" con una síntesis ejecutiva breve del paso.',
-    '- Todas las demás claves del JSON deben coincidir exactamente con el esquema provisto.',
-    stepSpecificGuidance,
-    '',
-    'Esquema JSON obligatorio:',
-    schema,
-  ]
-    .filter(Boolean)
-    .join('\n')
+  for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
+    const prompt = [
+      `Eres ${params.agent.name} dentro de Mission Control.`,
+      `Tu rol: ${params.agent.role}.`,
+      params.agent.team ? `Equipo: ${params.agent.team}.` : null,
+      params.agent.soul_short ? `Soul: ${params.agent.soul_short}` : null,
+      params.agent.skills?.length ? `Skills: ${params.agent.skills.join(', ')}.` : null,
+      params.agent.responsibilities?.length ? `Responsabilidades: ${params.agent.responsibilities.join(', ')}.` : null,
+      '',
+      'Objetivo:',
+      `Genera el análisis del paso ${params.idea.step + 1}/${TOTAL_IDEA_STEPS} para la idea de negocio "${params.idea.title}".`,
+      params.idea.summary ? `Resumen de la idea: ${params.idea.summary}` : 'Resumen de la idea: no provisto.',
+      '',
+      `Paso actual: ${stepDefinition.label}`,
+      `Hint: ${stepDefinition.hint}`,
+      'Marco metodológico: usa un nivel de profundidad tipo Moonshot/ITTI (KAPI 2026): respuestas específicas, estructuradas, cuantificadas y listas para discusión ejecutiva.',
+      stepDefinition.questions.length
+        ? `Preguntas guía:\n${stepDefinition.questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`
+        : 'Preguntas guía: usa criterio experto para completar este paso con suficiente sustancia para aprobación ejecutiva.',
+      '',
+      priorContext ? `Contexto ya resuelto:\n${priorContext}` : 'Contexto ya resuelto: este es el primer paso.',
+      currentDraft ? `Borrador actual del paso a revisar:\n${currentDraft}` : 'Borrador actual del paso: no existe uno previo o debe generarse desde cero.',
+      pendingFeedback
+        ? `Feedback explícito del usuario para este paso (debes incorporarlo de forma prioritaria):\n${pendingFeedback}`
+        : 'Feedback explícito del usuario para este paso: no provisto.',
+      previousAttemptNote || null,
+      '',
+      'Reglas obligatorias:',
+      '- Responde solo en español.',
+      '- No hables de ti mismo ni menciones que eres una IA.',
+      '- Usa TODOS los campos dedicados del paso cuando existan; no concentres la respuesta en un solo bloque de texto.',
+      '- Si existe feedback explícito del usuario para este paso, úsalo como instrucción prioritaria para corregir y rehacer el draft.',
+      '- Si un campo requiere números o supuestos, complétalos con estimaciones razonables y explícitas.',
+      '- Mantén cada campo conciso: idealmente 3-4 bullets o un párrafo corto; evita bloques largos.',
+      '- Devuelve ÚNICAMENTE un objeto JSON válido. Sin markdown, sin fences, sin texto extra antes o después.',
+      '- El JSON debe incluir siempre la clave "content" con una síntesis ejecutiva breve del paso.',
+      '- Todas las demás claves del JSON deben coincidir exactamente con el esquema provisto.',
+      stepSpecificGuidance,
+      '',
+      'Esquema JSON obligatorio:',
+      schema,
+    ]
+      .filter(Boolean)
+      .join('\n')
 
-  const args = [
-    'chat',
-    '-q',
-    prompt,
-    '-Q',
-    '--toolsets',
-    'web',
-    '--ignore-rules',
-    '--skills',
-    'mission-control-workflows,mission-control-agent-design',
-    '--source',
-    'tool',
-  ]
+    const args = [
+      'chat',
+      '-q',
+      prompt,
+      '-Q',
+      '--toolsets',
+      'web',
+      '--ignore-rules',
+      '--skills',
+      'mission-control-workflows,mission-control-agent-design',
+      '--source',
+      'tool',
+    ]
 
-  const { stdout, stderr } = await execFileAsync('hermes', args, {
-    cwd: process.cwd(),
-    timeout: 240000,
-    maxBuffer: 1024 * 1024,
-  })
+    const { stdout, stderr } = await execFileAsync(resolveHermesBinary(), args, {
+      cwd: process.cwd(),
+      timeout: 240000,
+      maxBuffer: 1024 * 1024,
+    })
 
-  const parsed = extractHermesJson(stdout)
-  const stepData = normalizeGeneratedStepPayload(params.idea.step, parsed)
+    const parsed = extractHermesJson(stdout)
+    const stepData = normalizeGeneratedStepPayload(params.idea.step, parsed)
 
-  if (!stepData.content && !Object.values(stepData).some((value) => value.trim())) {
-    throw new Error(stderr?.trim() || 'Hermes no devolvió contenido estructurado para este paso.')
+    if (!stepData.content && !Object.values(stepData).some((value) => value.trim())) {
+      throw new Error(stderr?.trim() || 'Hermes no devolvió contenido estructurado para este paso.')
+    }
+
+    const missingFields = getMissingStructuredFields(params.idea.step, stepData)
+    if (!missingFields.length) {
+      return {
+        content: stepData.content,
+        stepData,
+        model: params.agent.llm_model || 'default',
+        provider: 'default',
+        generated_at: new Date().toISOString(),
+      }
+    }
+
+    if (attempt === MAX_GENERATION_ATTEMPTS) {
+      throw new Error(buildMissingFieldsError(params.idea.step, missingFields))
+    }
+
+    previousAttemptNote = [
+      'La respuesta anterior fue rechazada por incompleta.',
+      buildMissingFieldsError(params.idea.step, missingFields),
+      'Rehaz el JSON completo, manteniendo consistencia con el draft y rellenando TODOS esos campos faltantes.',
+    ].join('\n')
   }
 
-  return {
-    content: stepData.content,
-    stepData,
-    model: params.agent.llm_model || 'default',
-    provider: 'default',
-    generated_at: new Date().toISOString(),
-  }
+  throw new Error('No se pudo generar un payload válido para este paso.')
 }
 
 function buildJsonSchemaHint(step: number) {
   switch (IDEA_STEPS[step]?.kind) {
+    case 'problem-definition':
+      return JSON.stringify(
+        {
+          content: 'Síntesis ejecutiva del problema y de la propuesta de valor.',
+          ...Object.fromEntries(PROBLEM_DEFINITION_FIELDS.map((field) => [field.key, field.label])),
+        },
+        null,
+        2
+      )
     case 'customer-archetype':
       return JSON.stringify(
         {
           content: 'Síntesis ejecutiva del arquetipo y por qué es el early user correcto.',
           ...Object.fromEntries(CUSTOMER_ARCHETYPE_FIELDS.map((field) => [field.key, field.label])),
+        },
+        null,
+        2
+      )
+    case 'customer-journey':
+      return JSON.stringify(
+        {
+          content: 'Síntesis del journey completo y del principal cuello de botella.',
+          ...Object.fromEntries(CUSTOMER_JOURNEY_FIELDS.map((field) => [field.key, field.label])),
         },
         null,
         2
@@ -188,6 +234,15 @@ function buildJsonSchemaHint(step: number) {
         null,
         2
       )
+    case 'go-no-go':
+      return JSON.stringify(
+        {
+          content: 'Decisión final y lectura ejecutiva del go/no-go.',
+          ...Object.fromEntries(GO_NO_GO_FIELDS.map((field) => [field.key, field.label])),
+        },
+        null,
+        2
+      )
     default:
       return JSON.stringify(
         {
@@ -201,11 +256,23 @@ function buildJsonSchemaHint(step: number) {
 
 function buildStepSpecificGuidance(step: number) {
   switch (IDEA_STEPS[step]?.kind) {
+    case 'problem-definition':
+      return [
+        '- Completa la anatomía del problema: síntoma, trigger, workaround actual, frecuencia, intensidad y costo.',
+        '- Los pain points deben estar priorizados y conectados con consecuencias concretas.',
+        '- El campo grandmother_value_statement debe pasar la prueba de la abuela: simple, sin jerga y entendible en 15 segundos.',
+      ].join('\n')
     case 'customer-archetype':
       return [
         '- Completa todos los campos del arquetipo con señales observables, no generalidades.',
         '- Incluye JTBD, pains, gains, hábitos, canales y una cita que sonaría real en entrevista.',
         '- Prioriza un segmento accesible, con dolor intenso y capacidad de pago.',
+      ].join('\n')
+    case 'customer-journey':
+      return [
+        '- Recorre el journey de izquierda a derecha y completa TODAS las etapas.',
+        '- En cada etapa documenta necesidad, touchpoints, opinión, sentimiento y solución concreta.',
+        '- Mantén cada celda breve: 3 bullets o un párrafo corto; evita repetir la misma frase en todas las etapas.',
       ].join('\n')
     case 'bmc':
       return [
@@ -236,6 +303,12 @@ function buildStepSpecificGuidance(step: number) {
         '- Evalúa switching costs, datos, comunidad, distribución, lock-in, marca y economías de escala con honestidad estratégica.',
         '- Responde qué tendría que superar un competidor capitalizado para quitar esta ventaja.',
         '- Diferencia claramente el moat actual del moat que todavía debe construirse.',
+      ].join('\n')
+    case 'go-no-go':
+      return [
+        '- El veredicto debe ser explícito: Go, Go condicionado o No-Go.',
+        '- Las hipótesis, experimentos y métricas deben ser accionables y no vanidosas.',
+        '- Define kill criteria claros: qué evidencia detendría la idea.',
       ].join('\n')
     default:
       return [
@@ -297,4 +370,19 @@ function extractJsonObject(text: string) {
   const end = text.lastIndexOf('}')
   if (start === -1 || end === -1 || end <= start) return null
   return text.slice(start, end + 1)
+}
+
+function resolveHermesBinary() {
+  for (const candidate of HERMES_BIN_CANDIDATES) {
+    if (candidate === 'hermes') return candidate
+    if (existsSync(candidate)) return candidate
+  }
+
+  throw new Error(`No se encontró el binario de Hermes. Candidates: ${HERMES_BIN_CANDIDATES.join(', ')}`)
+}
+
+function buildMissingFieldsError(step: number, missingFields: string[]) {
+  const labels = getFieldLabelMap(step)
+  const formatted = missingFields.map((field) => labels[field] || field)
+  return `El agente devolvió un payload incompleto. Faltan campos obligatorios: ${formatted.join(', ')}`
 }

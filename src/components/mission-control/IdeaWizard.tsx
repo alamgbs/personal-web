@@ -16,11 +16,16 @@ import {
   CASHFLOW_OUTFLOW_ROWS,
   CASHFLOW_PERIODS,
   CUSTOMER_ARCHETYPE_FIELDS,
+  CUSTOMER_JOURNEY_FIELDS,
+  CUSTOMER_JOURNEY_STAGE_FIELDS,
+  CUSTOMER_JOURNEY_STAGES,
   FINAL_IDEA_STEP_INDEX,
+  GO_NO_GO_FIELDS,
   IDEA_STEPS,
   MOAT_FIELDS,
   PNL_COMPUTED_ROWS,
   PNL_INPUT_GROUPS,
+  PROBLEM_DEFINITION_FIELDS,
   TAM_FIELDS,
   TOTAL_IDEA_STEPS,
 } from '@/lib/mission-control/idea-steps'
@@ -72,6 +77,40 @@ function StepContent({
   const initialContent = (savedData as Record<string, string>)?.content || ''
   const initialFeedback = (savedData as Record<string, string>)?.pending_feedback || ''
 
+  if (stepDef.kind === 'problem-definition') {
+    const initialVals = (savedData as Record<string, string>) || {}
+    return (
+      <form
+        ref={formRef}
+        onSubmit={(e) => {
+          e.preventDefault()
+          const fd = new FormData(e.currentTarget)
+          onSave(buildTextFieldPayload(fd, PROBLEM_DEFINITION_FIELDS))
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+      >
+        <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <FeedbackField defaultValue={initialFeedback} />
+        <ConciseHint text="Mantén cada campo en 3-4 bullets o un párrafo corto. El último campo debe pasar la prueba de la abuela." />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
+          {PROBLEM_DEFINITION_FIELDS.map((field) => (
+            <div key={field.key} style={structuredCardStyle}>
+              <label style={bmcLabelStyle}>{field.label}</label>
+              <textarea
+                name={field.key}
+                defaultValue={initialVals[field.key] || ''}
+                rows={field.key === 'grandmother_value_statement' ? 4 : 3}
+                placeholder={field.placeholder || `Describe ${field.label.toLowerCase()}...`}
+                style={textareaStyle}
+              />
+            </div>
+          ))}
+        </div>
+        {btnRow(saving)}
+      </form>
+    )
+  }
+
   if (stepDef.kind === 'customer-archetype') {
     const initialVals = (savedData as Record<string, string>) || {}
     return (
@@ -86,6 +125,7 @@ function StepContent({
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
         <FeedbackField defaultValue={initialFeedback} />
+        <ConciseHint text="Piensa en una persona real dentro de la empresa. Cada campo debe ser específico y breve." />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
           {CUSTOMER_ARCHETYPE_FIELDS.map((field) => (
             <div key={field.key} style={structuredCardStyle}>
@@ -99,6 +139,52 @@ function StepContent({
               />
             </div>
           ))}
+        </div>
+        {btnRow(saving)}
+      </form>
+    )
+  }
+
+  if (stepDef.kind === 'customer-journey') {
+    const initialVals = (savedData as Record<string, string>) || {}
+    return (
+      <form
+        ref={formRef}
+        onSubmit={(e) => {
+          e.preventDefault()
+          const fd = new FormData(e.currentTarget)
+          onSave(buildTextFieldPayload(fd, CUSTOMER_JOURNEY_FIELDS))
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+      >
+        <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <FeedbackField defaultValue={initialFeedback} />
+        <ConciseHint text="Completa el diagrama de izquierda a derecha. Cada celda debe ser breve: 3 bullets o un párrafo corto." />
+        <div style={{ overflowX: 'auto' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${CUSTOMER_JOURNEY_STAGES.length}, minmax(240px, 1fr))`, gap: '10px', minWidth: `${CUSTOMER_JOURNEY_STAGES.length * 240}px` }}>
+            {CUSTOMER_JOURNEY_STAGES.map((stage) => (
+              <div key={stage.key} style={{ ...structuredCardStyle, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ color: 'var(--color-acid)', fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  {stage.label}
+                </div>
+                {CUSTOMER_JOURNEY_STAGE_FIELDS.map((field) => {
+                  const key = `${stage.key}_${field.suffix}`
+                  return (
+                    <div key={key} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                      <label style={bmcLabelStyle}>{field.label}</label>
+                      <textarea
+                        name={key}
+                        defaultValue={initialVals[key] || ''}
+                        rows={field.suffix === 'sentiment' ? 2 : 3}
+                        placeholder={field.placeholder}
+                        style={textareaStyle}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+          </div>
         </div>
         {btnRow(saving)}
       </form>
@@ -403,6 +489,40 @@ function StepContent({
     )
   }
 
+  if (stepDef.kind === 'go-no-go') {
+    const initialVals = (savedData as Record<string, string>) || {}
+    return (
+      <form
+        ref={formRef}
+        onSubmit={(e) => {
+          e.preventDefault()
+          const fd = new FormData(e.currentTarget)
+          onSave(buildTextFieldPayload(fd, GO_NO_GO_FIELDS))
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
+      >
+        <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <FeedbackField defaultValue={initialFeedback} />
+        <ConciseHint text="El veredicto debe ser explícito y el resto del paso debe ser accionable y breve." />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
+          {GO_NO_GO_FIELDS.map((field) => (
+            <div key={field.key} style={structuredCardStyle}>
+              <label style={bmcLabelStyle}>{field.label}</label>
+              <textarea
+                name={field.key}
+                defaultValue={initialVals[field.key] || ''}
+                rows={field.key === 'verdict' ? 2 : 3}
+                placeholder={field.placeholder || `Describe ${field.label.toLowerCase()}...`}
+                style={textareaStyle}
+              />
+            </div>
+          ))}
+        </div>
+        {btnRow(saving)}
+      </form>
+    )
+  }
+
   // Default: text step with guided questions
   const initialVal = initialContent
   return (
@@ -493,8 +613,12 @@ function buildCashflowPayload(formData: FormData) {
 
 function buildStepPayloadForKind(stepKind: (typeof STEPS)[number]['kind'], formData: FormData) {
   switch (stepKind) {
+    case 'problem-definition':
+      return buildTextFieldPayload(formData, PROBLEM_DEFINITION_FIELDS)
     case 'customer-archetype':
       return buildTextFieldPayload(formData, CUSTOMER_ARCHETYPE_FIELDS)
+    case 'customer-journey':
+      return buildTextFieldPayload(formData, CUSTOMER_JOURNEY_FIELDS)
     case 'bmc':
       return buildTextFieldPayload(formData, BMC_FIELDS)
     case 'pnl':
@@ -505,6 +629,8 @@ function buildStepPayloadForKind(stepKind: (typeof STEPS)[number]['kind'], formD
       return buildTextFieldPayload(formData, TAM_FIELDS)
     case 'moat':
       return buildTextFieldPayload(formData, MOAT_FIELDS)
+    case 'go-no-go':
+      return buildTextFieldPayload(formData, GO_NO_GO_FIELDS)
     default:
       return buildDefaultStepPayload(formData)
   }
@@ -620,6 +746,27 @@ function FeedbackField({ defaultValue }: { defaultValue: string }) {
           borderColor: 'rgba(214,255,63,0.25)',
         }}
       />
+    </div>
+  )
+}
+
+function ConciseHint({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        background: 'rgba(214,255,63,0.06)',
+        border: '1px solid rgba(214,255,63,0.18)',
+        borderRadius: '6px',
+        padding: '8px 10px',
+        color: 'var(--color-text-faint)',
+        fontSize: '11px',
+        lineHeight: 1.5,
+      }}
+    >
+      <strong style={{ color: 'var(--color-acid)', fontFamily: 'var(--font-mono)', fontSize: '10px', letterSpacing: '0.08em', textTransform: 'uppercase', marginRight: '8px' }}>
+        Guía de concisión
+      </strong>
+      {text}
     </div>
   )
 }

@@ -3,33 +3,42 @@ import assert from 'node:assert/strict'
 
 import { migrateIdeaRecordShape, upgradeLegacyIdeaStepPayload } from '../src/lib/mission-control/idea-step-migration.ts'
 
-test('migrateIdeaRecordShape moves legacy Go/No-Go from step 8 to step 9', () => {
+test('migrateIdeaRecordShape remaps the legacy step order into the new Moonshot flow', () => {
   const result = migrateIdeaRecordShape({
-    current_step: 8,
+    current_step: 9,
     step_data: {
-      '8': {
-        content: '# Go / No Go\n\n## Recomendación\nGo condicionado a un MVP muy enfocado.',
-        assigned_agent_slug: 'hermes',
-      },
+      '0': { content: 'Legacy archetype' },
+      '1': { content: 'Legacy journey' },
+      '2': { content: 'Legacy problem definition' },
+      '3': { content: 'Legacy pain points' },
+      '4': { content: 'Legacy BMC' },
+      '5': { content: 'Legacy P&L' },
+      '6': { content: 'Legacy cashflow' },
+      '7': { content: 'Legacy TAM' },
+      '8': { content: 'Legacy moat' },
+      '9': { content: '# Go / No Go\n\n## Recomendación\nGo condicionado a un MVP muy enfocado.' },
     },
     step_approvals: {
-      '8': '2026-06-14T00:00:00.000Z',
+      '2': '2026-06-14T00:00:00.000Z',
+      '9': '2026-06-15T00:00:00.000Z',
     },
   })
 
   assert.equal(result.changed, true)
-  assert.equal(result.current_step, 9)
-  assert.deepEqual(result.step_data['8'], {})
-  assert.deepEqual(result.step_data['9'], {
-    content: '# Go / No Go\n\n## Recomendación\nGo condicionado a un MVP muy enfocado.',
-    assigned_agent_slug: 'hermes',
-  })
-  assert.equal(result.step_approvals['9'], '2026-06-14T00:00:00.000Z')
-  assert.equal(result.step_approvals['8'], undefined)
+  assert.equal(result.current_step, 8)
+  assert.match(String((result.step_data['0'] as Record<string, unknown>).content || ''), /Legacy problem definition/)
+  assert.match(String((result.step_data['0'] as Record<string, unknown>).content || ''), /Legacy pain points/)
+  assert.equal((result.step_data['1'] as Record<string, unknown>).content, 'Legacy archetype')
+  assert.equal((result.step_data['2'] as Record<string, unknown>).content, 'Legacy journey')
+  assert.equal((result.step_data['3'] as Record<string, unknown>).content, 'Legacy BMC')
+  assert.equal((result.step_data['4'] as Record<string, unknown>).content, 'Legacy TAM')
+  assert.equal((result.step_data['8'] as Record<string, unknown>).content, '# Go / No Go\n\n## Recomendación\nGo condicionado a un MVP muy enfocado.')
+  assert.equal(result.step_approvals['0'], '2026-06-14T00:00:00.000Z')
+  assert.equal(result.step_approvals['8'], '2026-06-15T00:00:00.000Z')
 })
 
 test('upgradeLegacyIdeaStepPayload maps BMC markdown sections to current field keys', () => {
-  const result = upgradeLegacyIdeaStepPayload(4, {
+  const result = upgradeLegacyIdeaStepPayload(3, {
     content: `## 1. Propuesta de valor\nUna propuesta concreta.\n\n## 2. Segmentos de clientes\nFintechs y bancos.\n\n## 3. Canales\nVenta directa.\n\n## 4. Relación con clientes\nSoporte consultivo.\n\n## 5. Actividades clave\nOperar la API.\n\n## 6. Recursos clave\nEquipo e infraestructura.\n\n## 7. Socios clave\nPartners KYC.\n\n## 8. Estructura de costos\nInfra y compliance.\n\n## 9. Fuentes de ingresos\nSuscripción + uso.`,
     assigned_agent_slug: 'product-lead',
   })

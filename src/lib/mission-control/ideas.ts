@@ -4,9 +4,12 @@ import {
   BMC_FIELDS,
   CASHFLOW_PERIODS,
   CUSTOMER_ARCHETYPE_FIELDS,
+  CUSTOMER_JOURNEY_FIELDS,
   FINAL_IDEA_STEP_INDEX,
+  GO_NO_GO_FIELDS,
   IDEA_STEPS,
   MOAT_FIELDS,
+  PROBLEM_DEFINITION_FIELDS,
   TAM_FIELDS,
 } from '@/lib/mission-control/idea-steps'
 import { upgradeLegacyIdeaStepPayload } from '@/lib/mission-control/idea-step-migration'
@@ -43,8 +46,12 @@ export function getIdeaStepAssignment(step: number): IdeaStepAssignment {
 
 export function getStructuredFieldKeys(step: number) {
   switch (IDEA_STEPS[step]?.kind) {
+    case 'problem-definition':
+      return PROBLEM_DEFINITION_FIELDS.map((field) => field.key)
     case 'customer-archetype':
       return CUSTOMER_ARCHETYPE_FIELDS.map((field) => field.key)
+    case 'customer-journey':
+      return CUSTOMER_JOURNEY_FIELDS.map((field) => field.key)
     case 'bmc':
       return BMC_FIELDS.map((field) => field.key)
     case 'pnl':
@@ -55,6 +62,8 @@ export function getStructuredFieldKeys(step: number) {
       return TAM_FIELDS.map((field) => field.key)
     case 'moat':
       return MOAT_FIELDS.map((field) => field.key)
+    case 'go-no-go':
+      return GO_NO_GO_FIELDS.map((field) => field.key)
     default:
       return []
   }
@@ -62,8 +71,12 @@ export function getStructuredFieldKeys(step: number) {
 
 export function getFieldLabelMap(step: number) {
   switch (IDEA_STEPS[step]?.kind) {
+    case 'problem-definition':
+      return Object.fromEntries(PROBLEM_DEFINITION_FIELDS.map((field) => [field.key, field.label]))
     case 'customer-archetype':
       return Object.fromEntries(CUSTOMER_ARCHETYPE_FIELDS.map((field) => [field.key, field.label]))
+    case 'customer-journey':
+      return Object.fromEntries(CUSTOMER_JOURNEY_FIELDS.map((field) => [field.key, field.label]))
     case 'bmc':
       return Object.fromEntries(BMC_FIELDS.map((field) => [field.key, field.label]))
     case 'pnl':
@@ -78,6 +91,8 @@ export function getFieldLabelMap(step: number) {
       return Object.fromEntries(TAM_FIELDS.map((field) => [field.key, field.label]))
     case 'moat':
       return Object.fromEntries(MOAT_FIELDS.map((field) => [field.key, field.label]))
+    case 'go-no-go':
+      return Object.fromEntries(GO_NO_GO_FIELDS.map((field) => [field.key, field.label]))
     default:
       return {}
   }
@@ -109,6 +124,15 @@ export function normalizeGeneratedStepPayload(step: number, raw: Record<string, 
   }
 
   return normalized
+}
+
+export function getMissingStructuredFields(step: number, raw: Record<string, unknown> | null | undefined) {
+  const normalized = normalizeGeneratedStepPayload(step, raw)
+
+  return getStructuredFieldKeys(step).filter((key) => {
+    const value = normalized[key]
+    return typeof value !== 'string' || !value.trim()
+  })
 }
 
 export function normalizeIdeaStepData(step: number, raw: Record<string, unknown> | null | undefined) {
@@ -153,7 +177,7 @@ export function isIdeaStepComplete(step: number, raw: Record<string, unknown> | 
   const structuredKeys = getStructuredFieldKeys(step)
 
   if (structuredKeys.length > 0) {
-    return structuredKeys.some((key) => {
+    return structuredKeys.every((key) => {
       const value = normalized[key]
       return typeof value === 'string' && value.trim().length > 0
     })

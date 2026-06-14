@@ -4,8 +4,11 @@ import {
   BMC_FIELDS,
   CASHFLOW_PERIODS,
   CUSTOMER_ARCHETYPE_FIELDS,
+  CUSTOMER_JOURNEY_FIELDS,
+  GO_NO_GO_FIELDS,
   IDEA_STEPS,
   MOAT_FIELDS,
+  PROBLEM_DEFINITION_FIELDS,
   TAM_FIELDS,
   type IdeaStepKind,
 } from './idea-steps'
@@ -68,6 +71,9 @@ export function migrateIdeaRecordShape(input: IdeaRecordMigrationInput): IdeaRec
 
   const shiftedCurrentStep = shiftLegacyFinalStep(stepData, stepApprovals, currentStep)
   currentStep = shiftedCurrentStep
+
+  const remapped = remapLegacyStepOrder(stepData, stepApprovals, currentStep)
+  currentStep = remapped.currentStep
 
   for (const [stepKey, rawValue] of Object.entries(stepData)) {
     const step = Number(stepKey)
@@ -176,13 +182,129 @@ function shiftLegacyFinalStep(
   return currentStep === 8 ? 9 : currentStep
 }
 
+function remapLegacyStepOrder(
+  stepData: Record<string, unknown>,
+  stepApprovals: Record<string, unknown>,
+  currentStep: number
+) {
+  const hasLegacyShape = currentStep > 8 || Object.prototype.hasOwnProperty.call(stepData, '9')
+  if (!hasLegacyShape) {
+    return { currentStep }
+  }
+
+  const oldProblem = asRecord(stepData['2'])
+  const oldPainPoints = asRecord(stepData['3'])
+  const mergedProblem = mergeLegacyProblemAndPainPointSteps(oldProblem, oldPainPoints)
+
+  const remappedStepData: Record<string, unknown> = {
+    '0': mergedProblem,
+    '1': asRecord(stepData['0']),
+    '2': asRecord(stepData['1']),
+    '3': asRecord(stepData['4']),
+    '4': asRecord(stepData['7']),
+    '5': asRecord(stepData['5']),
+    '6': asRecord(stepData['6']),
+    '7': asRecord(stepData['8']),
+    '8': asRecord(stepData['9']),
+  }
+
+  const remappedApprovals: Record<string, unknown> = {
+    ...(stepApprovals['0'] || stepApprovals['1'] || stepApprovals['2'] || stepApprovals['3'] || stepApprovals['4'] || stepApprovals['5'] || stepApprovals['6'] || stepApprovals['7'] || stepApprovals['8'] || stepApprovals['9']
+      ? {
+          '0': stepApprovals['2'] || stepApprovals['3'],
+          '1': stepApprovals['0'],
+          '2': stepApprovals['1'],
+          '3': stepApprovals['4'],
+          '4': stepApprovals['7'],
+          '5': stepApprovals['5'],
+          '6': stepApprovals['6'],
+          '7': stepApprovals['8'],
+          '8': stepApprovals['9'],
+        }
+      : {}),
+  }
+
+  for (const key of Object.keys(stepData)) delete stepData[key]
+  for (const [key, value] of Object.entries(remappedStepData)) {
+    if (value && typeof value === 'object' && Object.keys(value as Record<string, unknown>).length === 0) continue
+    stepData[key] = value
+  }
+
+  for (const key of Object.keys(stepApprovals)) delete stepApprovals[key]
+  for (const [key, value] of Object.entries(remappedApprovals)) {
+    if (value !== undefined) {
+      stepApprovals[key] = value
+    }
+  }
+
+  return {
+    currentStep: mapLegacyCurrentStep(currentStep),
+  }
+}
+
+function mapLegacyCurrentStep(currentStep: number) {
+  switch (currentStep) {
+    case 0:
+      return 1
+    case 1:
+      return 2
+    case 2:
+    case 3:
+      return 0
+    case 4:
+      return 3
+    case 5:
+      return 5
+    case 6:
+      return 6
+    case 7:
+      return 4
+    case 8:
+      return 7
+    case 9:
+      return 8
+    default:
+      return Math.min(currentStep, 8)
+  }
+}
+
+function mergeLegacyProblemAndPainPointSteps(
+  problemStep: Record<string, unknown>,
+  painPointStep: Record<string, unknown>
+) {
+  const problemContent = normalizeText(problemStep.content)
+  const painContent = normalizeText(painPointStep.content)
+  const mergedContent = joinParagraphs(problemContent, painContent)
+
+  return {
+    ...pickPreservedFields(problemStep),
+    ...pickPreservedFields(painPointStep),
+    content: mergedContent,
+    persona_scope: firstNonEmpty(extractLeadingSentence(problemContent), extractLeadingSentence(painContent)),
+    critical_symptom: firstNonEmpty(extractSection(problemContent, /síntoma crítico|problema central|síntoma/i, '###'), extractLeadingBulletBlock(problemContent)),
+    problem_trigger: firstNonEmpty(extractSection(problemContent, /cuando|trigger|disparador/i, '###'), extractSection(painContent, /cuando|trigger|disparador/i, '###')),
+    current_solution: firstNonEmpty(extractSection(problemContent, /qué hace hoy|solución actual|workaround/i, '###'), extractSection(painContent, /qué hace hoy|solución actual|workaround/i, '###')),
+    frequency: extractInlineMatch(mergedContent, /(frecuencia[^\n:]*:\s*[^\n]+)/i),
+    intensity: extractInlineMatch(mergedContent, /(intensidad[^\n:]*:\s*[^\n]+)/i),
+    cost: firstNonEmpty(extractSection(problemContent, /costo|impacto|consecuencia/i, '###'), extractSection(painContent, /costo|impacto|consecuencia/i, '###')),
+    root_causes: firstNonEmpty(extractSection(problemContent, /causas|anatomía|raíz/i, '###'), extractSection(painContent, /causas|anatomía|raíz/i, '###')),
+    pain_points: firstNonEmpty(extractLeadingBulletBlock(painContent), painContent),
+    problem_statement: firstNonEmpty(extractInlineMatch(mergedContent, /(problem statement[^\n:]*:\s*[^\n]+)/i), extractLeadingSentence(problemContent)),
+    grandmother_value_statement: '',
+  }
+}
+
 function parseLegacyStructuredFields(step: number, payload: Record<string, unknown>) {
   const content = normalizeText(payload.content)
   const kind = IDEA_STEPS[step]?.kind
 
   switch (kind) {
+    case 'problem-definition':
+      return parseProblemDefinition(content)
     case 'customer-archetype':
       return parseCustomerArchetype(content)
+    case 'customer-journey':
+      return parseCustomerJourney(content)
     case 'bmc':
       return parseBusinessModelCanvas(content, payload)
     case 'pnl':
@@ -193,8 +315,28 @@ function parseLegacyStructuredFields(step: number, payload: Record<string, unkno
       return parseTam(content)
     case 'moat':
       return parseMoat(content)
+    case 'go-no-go':
+      return parseGoNoGo(content)
     default:
       return {}
+  }
+}
+
+function parseProblemDefinition(content: string) {
+  if (!content) return {}
+
+  return {
+    persona_scope: extractLeadingSentence(content),
+    critical_symptom: firstNonEmpty(extractSection(content, /síntoma crítico|problema central|síntoma/i, '###'), extractLeadingBulletBlock(content)),
+    problem_trigger: extractSection(content, /cuando|trigger|disparador/i, '###'),
+    current_solution: extractSection(content, /qué hace hoy|solución actual|workaround/i, '###'),
+    frequency: extractInlineMatch(content, /(frecuencia[^\n:]*:\s*[^\n]+)/i),
+    intensity: extractInlineMatch(content, /(intensidad[^\n:]*:\s*[^\n]+)/i),
+    cost: extractSection(content, /costo|impacto|consecuencia/i, '###'),
+    root_causes: extractSection(content, /causas|anatomía|raíz/i, '###'),
+    pain_points: extractSection(content, /pain points|dolores|fricciones/i, '###'),
+    problem_statement: firstNonEmpty(extractInlineMatch(content, /(problem statement[^\n:]*:\s*[^\n]+)/i), extractLeadingSentence(content)),
+    grandmother_value_statement: extractSection(content, /prueba de la abuela|value statement|propuesta de valor/i, '###'),
   }
 }
 
@@ -228,6 +370,49 @@ function parseCustomerArchetype(content: string) {
     adoption_barriers: objections,
     early_user_thesis: executiveRead,
   }
+}
+
+function parseCustomerJourney(content: string) {
+  if (!content) return {}
+
+  const stageAliasMap: Record<string, RegExp> = {
+    discovery: /descubrimiento|awareness|conciencia/i,
+    consideration: /consideración|evaluation|evaluaci[oó]n/i,
+    purchase: /compra|purchase|decisi[oó]n/i,
+    onboarding: /onboarding|activaci[oó]n|implementaci[oó]n/i,
+    usage: /uso|adopci[oó]n|operaci[oó]n recurrente/i,
+    advocacy: /retenci[oó]n|defensa|advocacy|expansi[oó]n/i,
+  }
+
+  const extracted: Record<string, string> = {}
+
+  for (const field of CUSTOMER_JOURNEY_FIELDS) {
+    const [stageKey, suffix] = field.key.split(/_(.+)/)
+    const section = extractSection(content, stageAliasMap[stageKey] || /.^/, '###')
+    if (!section) continue
+
+    switch (suffix) {
+      case 'customer_need':
+        extracted[field.key] = firstNonEmpty(extractInlineMatch(section, /(necesidad[^\n:]*:\s*[^\n]+)/i), extractLeadingBulletBlock(section), extractLeadingSentence(section))
+        break
+      case 'touchpoints':
+        extracted[field.key] = extractInlineMatch(section, /(touchpoints?[^\n:]*:\s*[^\n]+)/i)
+        break
+      case 'opinion':
+        extracted[field.key] = firstNonEmpty(extractInlineMatch(section, /(opini[oó]n[^\n:]*:\s*[^\n]+)/i), extractQuotedSentence(section))
+        break
+      case 'sentiment':
+        extracted[field.key] = extractInlineMatch(section, /(sentimient[^\n:]*:\s*[^\n]+)/i)
+        break
+      case 'solution':
+        extracted[field.key] = firstNonEmpty(extractInlineMatch(section, /(soluci[oó]n[^\n:]*:\s*[^\n]+)/i), extractSection(section, /soluci[oó]n|next step|acción/i, '###'))
+        break
+      default:
+        break
+    }
+  }
+
+  return extracted
 }
 
 function parseBusinessModelCanvas(content: string, payload: Record<string, unknown>) {
@@ -359,6 +544,21 @@ function parseMoat(content: string) {
   }
 }
 
+function parseGoNoGo(content: string) {
+  if (!content) return {}
+
+  return {
+    verdict: firstNonEmpty(extractInlineMatch(content, /(go(?:\s*condicionado)?|no-?go)/i), extractHeadingTitle(content, /#\s+(.+)/i)),
+    decision_rationale: firstNonEmpty(extractSection(content, /recomendación|decisión|rationale/i, '##'), extractLeadingBulletBlock(content)),
+    critical_hypotheses: extractSection(content, /hipótesis/i, '##'),
+    validation_experiments: extractSection(content, /experimento|validación/i, '##'),
+    success_metrics: extractSection(content, /métricas|criterio de éxito/i, '##'),
+    major_risks: extractSection(content, /riesgos|no-go/i, '##'),
+    timeline: extractSection(content, /timeline|mes 1|mes 2|mes 3/i, '##'),
+    kill_criteria: extractSection(content, /kill criteria|frenar|detener/i, '##'),
+  }
+}
+
 function pickPreservedFields(payload: Record<string, unknown>) {
   const preserved: Record<string, unknown> = {}
 
@@ -382,12 +582,15 @@ function buildStructuredFallback(step: number, payload: Record<string, unknown>)
   if (!content) return null
 
   const fallbackKeyByKind: Partial<Record<IdeaStepKind, string>> = {
+    'problem-definition': 'problem_statement',
     'customer-archetype': 'early_user_thesis',
+    'customer-journey': 'discovery_customer_need',
     bmc: 'value_proposition',
     pnl: 'revenue_other',
     cashflow: 'in_other__M1',
     tam: 'methodology',
     moat: 'moat_building_plan',
+    'go-no-go': 'decision_rationale',
   }
 
   const keys = getStructuredFieldKeysByKind(kind)
@@ -399,8 +602,12 @@ function buildStructuredFallback(step: number, payload: Record<string, unknown>)
 
 function getStructuredFieldKeysByKind(kind: IdeaStepKind | undefined) {
   switch (kind) {
+    case 'problem-definition':
+      return PROBLEM_DEFINITION_FIELDS.map((field) => field.key)
     case 'customer-archetype':
       return CUSTOMER_ARCHETYPE_FIELDS.map((field) => field.key)
+    case 'customer-journey':
+      return CUSTOMER_JOURNEY_FIELDS.map((field) => field.key)
     case 'bmc':
       return BMC_FIELDS.map((field) => field.key)
     case 'pnl':
@@ -411,6 +618,8 @@ function getStructuredFieldKeysByKind(kind: IdeaStepKind | undefined) {
       return TAM_FIELDS.map((field) => field.key)
     case 'moat':
       return MOAT_FIELDS.map((field) => field.key)
+    case 'go-no-go':
+      return GO_NO_GO_FIELDS.map((field) => field.key)
     default:
       return []
   }
@@ -497,6 +706,33 @@ function extractScore(content: string) {
   return match?.[0] || ''
 }
 
+function extractInlineMatch(content: string, regex: RegExp) {
+  const match = content.match(regex)
+  return match?.[1]?.trim() || match?.[0]?.trim() || ''
+}
+
+function extractLeadingSentence(content: string) {
+  if (!content) return ''
+  const match = content.trim().match(/^([^.!?\n]+[.!?]?)/)
+  return match?.[1]?.trim() || ''
+}
+
+function extractLeadingBulletBlock(content: string) {
+  if (!content) return ''
+  return content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^[-*]\s+/.test(line))
+    .slice(0, 4)
+    .join('\n')
+}
+
+function extractQuotedSentence(content: string) {
+  if (!content) return ''
+  const match = content.match(/[“"]([^”"]+)[”"]/)
+  return match?.[1]?.trim() || ''
+}
+
 function asRecord(value: unknown) {
   return value && typeof value === 'object' ? ({ ...(value as Record<string, unknown>) }) : {}
 }
@@ -512,6 +748,10 @@ function joinParagraphs(...parts: Array<string | undefined>) {
     .map((part) => normalizeText(part))
     .filter(Boolean)
     .join('\n\n')
+}
+
+function firstNonEmpty(...parts: Array<string | undefined>) {
+  return parts.map((part) => normalizeText(part)).find(Boolean) || ''
 }
 
 function escapeRegex(value: string) {
