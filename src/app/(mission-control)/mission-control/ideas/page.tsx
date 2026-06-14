@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { IdeasPanel } from '@/components/mission-control/IdeasPanel'
+import { migrateIdeaRecordShape } from '@/lib/mission-control/idea-step-migration'
 
 export const metadata = { title: 'Ideas de Negocio · Mission Control' }
 
@@ -15,11 +16,20 @@ export default async function IdeasPage() {
     console.error('Error fetching ideas:', error)
   }
 
-  const ideaList = (ideas || []).map((idea) => ({
-    ...idea,
-    step_data: (idea.step_data as Record<string, unknown>) || {},
-    step_approvals: (idea.step_approvals as Record<string, unknown>) || {},
-  }))
+  const ideaList = (ideas || []).map((idea) => {
+    const migrated = migrateIdeaRecordShape({
+      current_step: idea.current_step,
+      step_data: (idea.step_data as Record<string, unknown>) || {},
+      step_approvals: (idea.step_approvals as Record<string, unknown>) || {},
+    })
+
+    return {
+      ...idea,
+      current_step: migrated.current_step,
+      step_data: migrated.step_data,
+      step_approvals: migrated.step_approvals,
+    }
+  })
 
   return (
     <div style={{

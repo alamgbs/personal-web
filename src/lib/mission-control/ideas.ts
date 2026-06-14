@@ -9,6 +9,7 @@ import {
   MOAT_FIELDS,
   TAM_FIELDS,
 } from '@/lib/mission-control/idea-steps'
+import { upgradeLegacyIdeaStepPayload } from '@/lib/mission-control/idea-step-migration'
 
 export const IDEA_STEP_ASSIGNMENTS = [
   { slug: 'cx-analyst', name: 'CX Analyst', team: 'Marketing' },
@@ -111,7 +112,7 @@ export function normalizeGeneratedStepPayload(step: number, raw: Record<string, 
 
 export function normalizeIdeaStepData(step: number, raw: Record<string, unknown> | null | undefined) {
   const assignment = getIdeaStepAssignment(step)
-  const data = (raw || {}) as Record<string, unknown>
+  const data = upgradeLegacyIdeaStepPayload(step, (raw || {}) as Record<string, unknown>)
 
   const legacyAware = applyLegacyAliases(step, data)
   const normalizedStructured = normalizeGeneratedStepPayload(step, legacyAware)
@@ -129,8 +130,8 @@ export function normalizeIdeaStepPayloadForSave(
   existing: Record<string, unknown> | null | undefined,
   incoming: Record<string, unknown> | null | undefined
 ) {
-  const existingData = (existing || {}) as Record<string, unknown>
-  const incomingData = (incoming || {}) as Record<string, unknown>
+  const existingData = upgradeLegacyIdeaStepPayload(step, (existing || {}) as Record<string, unknown>)
+  const incomingData = upgradeLegacyIdeaStepPayload(step, (incoming || {}) as Record<string, unknown>)
   const merged = {
     ...existingData,
     ...incomingData,
