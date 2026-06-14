@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { revalidatePath } from 'next/cache'
+import { after } from 'next/server'
 import { createPrivilegedServerClient } from '@/lib/supabase/admin'
 import { generateIdeaStepWithHermes } from '@/lib/mission-control/idea-agent-runtime'
 import { FINAL_IDEA_STEP_INDEX, IDEA_STEPS } from '@/lib/mission-control/idea-steps'
@@ -42,6 +43,26 @@ type ProjectRow = {
   execution_status: string | null
   notification_target: string | null
   source_idea_id: string | null
+}
+
+export function startIdeaPipelineAutomation(ideaId: string) {
+  after(async () => {
+    try {
+      await runIdeaPipelineAutomation(ideaId)
+    } catch (error) {
+      console.error('[mission-control] background idea pipeline failed', { ideaId, error })
+    }
+  })
+}
+
+export function startIdeaStepAutomation(ideaId: string, step: number) {
+  after(async () => {
+    try {
+      await runIdeaStepAutomation(ideaId, step)
+    } catch (error) {
+      console.error('[mission-control] background idea step rerun failed', { ideaId, step, error })
+    }
+  })
 }
 
 export async function runIdeaPipelineAutomation(ideaId: string) {
@@ -151,6 +172,105 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
     return { success: true, workflow_stage: readyForReview ? 'idea_review' : 'idea_pipeline' }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'No se pudo ejecutar el pipeline automático.'
+    await supabase
+      .from('business_ideas')
+      .update({
+        automation_status: 'failed',
+        last_automation_error: message,
+      })
+      .eq('id', ideaId)
+
+    revalidatePath('/mission-control/ideas')
+    throw error
+  }
+}
+
+export async function runIdeaStepAutomation(ideaId: string, step: number) {
+  const supabase = await createPrivilegedServerClient()
+  const idea = await fetchIdea(ideaId)
+
+  if (!idea) {
+    throw new Error('Idea no encontrada.')
+  }
+
+  if (!IDEA_STEPS[step]) {
+    throw new Error(`Paso inválido: ${step}`)
+  }
+
+  const currentStepData = (idea.step_data as JsonRecord) || {}
+  const existing = currentStepData[step.toString()] as JsonRecord | undefined
+  const assignment = getIdeaStepAssignment(step)
+
+  await supabase
+    .from('business_ideas')
+    .update({
+      current_step: step,
+      workflow_stage: 'idea_pipeline',
+      automation_status: 'running',
+      automation_run_count: (idea.automation_run_count || 0) + 1,
+      last_automation_error: null,
+    })
+    .eq('id', ideaId)
+
+  try {
+    const { data: agent, error: agentError } = await supabase
+      .from('agents')
+      .select('name, slug, team, role, soul_short, skills, responsibilities, llm_model')
+      .eq('slug', assignment.slug)
+      .single()
+
+    if (agentError || !agent) {
+      throw new Error(agentError?.message || `No se encontró el agente ${assignment.slug}.`)
+    }
+
+    const generated = await generateIdeaStepWithHermes({
+      agent,
+      idea: {
+        title: idea.title,
+        summary: idea.summary,
+        step,
+        stepData: currentStepData,
+      },
+    })
+
+    const stepData = {
+      ...currentStepData,
+      [step.toString()]: {
+        ...(existing || {}),
+        ...generated.stepData,
+        assigned_agent_slug: assignment.slug,
+        assigned_agent_name: assignment.name,
+        generated_at: generated.generated_at,
+        generated_by: agent.slug,
+        generated_by_name: agent.name,
+        generation_provider: generated.provider,
+        generation_model: generated.model,
+      },
+    }
+
+    const readyForReview = isIdeaReadyForReview(stepData)
+    const { error: updateError } = await supabase
+      .from('business_ideas')
+      .update({
+        step_data: stepData,
+        current_step: step,
+        status: 'in_analysis',
+        workflow_stage: readyForReview ? 'idea_review' : 'idea_pipeline',
+        automation_status: readyForReview ? 'needs_feedback' : 'completed',
+        review_requested_at: readyForReview ? new Date().toISOString() : null,
+        automation_completed_at: new Date().toISOString(),
+        last_automation_error: null,
+      })
+      .eq('id', ideaId)
+
+    if (updateError) {
+      throw new Error(updateError.message)
+    }
+
+    revalidatePath('/mission-control/ideas')
+    return { success: true, workflow_stage: readyForReview ? 'idea_review' : 'idea_pipeline' }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'No se pudo re-generar el paso automático.'
     await supabase
       .from('business_ideas')
       .update({

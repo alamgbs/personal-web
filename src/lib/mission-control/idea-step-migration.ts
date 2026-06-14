@@ -12,6 +12,7 @@ import {
 
 const META_KEYS = new Set([
   'content',
+  'pending_feedback',
   'assigned_agent_slug',
   'assigned_agent_name',
   'generated_at',

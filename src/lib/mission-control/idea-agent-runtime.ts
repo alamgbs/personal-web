@@ -43,6 +43,10 @@ export async function generateIdeaStepWithHermes(params: {
     })
     .join('\n\n')
 
+  const currentStepData = (params.idea.stepData[params.idea.step.toString()] as Record<string, unknown> | undefined) || {}
+  const currentDraft = extractContent(currentStepData)
+  const pendingFeedback = typeof currentStepData.pending_feedback === 'string' ? currentStepData.pending_feedback.trim() : ''
+
   const schema = buildJsonSchemaHint(params.idea.step)
   const stepSpecificGuidance = buildStepSpecificGuidance(params.idea.step)
 
@@ -66,11 +70,16 @@ export async function generateIdeaStepWithHermes(params: {
       : 'Preguntas guía: usa criterio experto para completar este paso con suficiente sustancia para aprobación ejecutiva.',
     '',
     priorContext ? `Contexto ya resuelto:\n${priorContext}` : 'Contexto ya resuelto: este es el primer paso.',
+    currentDraft ? `Borrador actual del paso a revisar:\n${currentDraft}` : 'Borrador actual del paso: no existe uno previo o debe generarse desde cero.',
+    pendingFeedback
+      ? `Feedback explícito del usuario para este paso (debes incorporarlo de forma prioritaria):\n${pendingFeedback}`
+      : 'Feedback explícito del usuario para este paso: no provisto.',
     '',
     'Reglas obligatorias:',
     '- Responde solo en español.',
     '- No hables de ti mismo ni menciones que eres una IA.',
     '- Usa TODOS los campos dedicados del paso cuando existan; no concentres la respuesta en un solo bloque de texto.',
+    '- Si existe feedback explícito del usuario para este paso, úsalo como instrucción prioritaria para corregir y rehacer el draft.',
     '- Si un campo requiere números o supuestos, complétalos con estimaciones razonables y explícitas.',
     '- Devuelve ÚNICAMENTE un objeto JSON válido. Sin markdown, sin fences, sin texto extra antes o después.',
     '- El JSON debe incluir siempre la clave "content" con una síntesis ejecutiva breve del paso.',

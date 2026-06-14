@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   approveStep,
   deleteBusinessIdea,
@@ -60,19 +60,23 @@ function StepContent({
   savedData,
   onSave,
   saving,
+  formRef,
 }: {
   step: number
   stepDef: typeof STEPS[number]
   savedData: Record<string, unknown> | null
   onSave: (data: Record<string, unknown>) => void
   saving: boolean
+  formRef: { current: HTMLFormElement | null }
 }) {
   const initialContent = (savedData as Record<string, string>)?.content || ''
+  const initialFeedback = (savedData as Record<string, string>)?.pending_feedback || ''
 
   if (stepDef.kind === 'customer-archetype') {
     const initialVals = (savedData as Record<string, string>) || {}
     return (
       <form
+        ref={formRef}
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
@@ -81,6 +85,7 @@ function StepContent({
         style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <FeedbackField defaultValue={initialFeedback} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
           {CUSTOMER_ARCHETYPE_FIELDS.map((field) => (
             <div key={field.key} style={structuredCardStyle}>
@@ -104,6 +109,7 @@ function StepContent({
     const initialVals = (savedData as Record<string, string>) || {}
     return (
       <form
+        ref={formRef}
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
@@ -112,6 +118,7 @@ function StepContent({
         style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <FeedbackField defaultValue={initialFeedback} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
           {BMC_FIELDS.map((field) => (
             <div key={field.key} style={structuredCardStyle}>
@@ -136,6 +143,7 @@ function StepContent({
     const totals = computePnlTotals(initialVals)
     return (
       <form
+        ref={formRef}
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
@@ -144,6 +152,7 @@ function StepContent({
         style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <FeedbackField defaultValue={initialFeedback} />
         <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '12px' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
@@ -202,6 +211,7 @@ function StepContent({
     const initialVals = (savedData as Record<string, string>) || {}
     return (
       <form
+        ref={formRef}
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
@@ -210,6 +220,7 @@ function StepContent({
         style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <FeedbackField defaultValue={initialFeedback} />
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '11px', minWidth: '1280px' }}>
             <thead>
@@ -286,6 +297,7 @@ function StepContent({
     const narrativeFields = TAM_FIELDS.filter((field) => !field.key.endsWith('_num') && field.key !== 'methodology')
     return (
       <form
+        ref={formRef}
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
@@ -294,6 +306,7 @@ function StepContent({
         style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <FeedbackField defaultValue={initialFeedback} />
         {narrativeFields.map((field) => {
           const amountKey = `${field.key}_num`
           return (
@@ -361,6 +374,7 @@ function StepContent({
     const initialVals = (savedData as Record<string, string>) || {}
     return (
       <form
+        ref={formRef}
         onSubmit={(e) => {
           e.preventDefault()
           const fd = new FormData(e.currentTarget)
@@ -369,6 +383,7 @@ function StepContent({
         style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
+        <FeedbackField defaultValue={initialFeedback} />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
           {MOAT_FIELDS.map((field) => (
             <div key={field.key} style={structuredCardStyle}>
@@ -392,10 +407,11 @@ function StepContent({
   const initialVal = initialContent
   return (
     <form
+      ref={formRef}
       onSubmit={(e) => {
         e.preventDefault()
         const fd = new FormData(e.currentTarget)
-        onSave({ content: fd.get('content') as string })
+        onSave(buildDefaultStepPayload(fd))
       }}
       style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}
     >
@@ -432,6 +448,8 @@ function StepContent({
         }}
       />
 
+      <FeedbackField defaultValue={initialFeedback} />
+
       {btnRow(saving)}
     </form>
   )
@@ -440,6 +458,7 @@ function StepContent({
 function buildTextFieldPayload(formData: FormData, fields: Array<{ key: string }>) {
   const payload: Record<string, string> = {
     content: String(formData.get('content') || ''),
+    pending_feedback: String(formData.get('pending_feedback') || ''),
   }
 
   for (const field of fields) {
@@ -449,9 +468,17 @@ function buildTextFieldPayload(formData: FormData, fields: Array<{ key: string }
   return payload
 }
 
+function buildDefaultStepPayload(formData: FormData) {
+  return {
+    content: String(formData.get('content') || ''),
+    pending_feedback: String(formData.get('pending_feedback') || ''),
+  }
+}
+
 function buildCashflowPayload(formData: FormData) {
   const payload: Record<string, string> = {
     content: String(formData.get('content') || ''),
+    pending_feedback: String(formData.get('pending_feedback') || ''),
   }
 
   for (const field of ALL_CASHFLOW_ROWS) {
@@ -462,6 +489,25 @@ function buildCashflowPayload(formData: FormData) {
   }
 
   return payload
+}
+
+function buildStepPayloadForKind(stepKind: (typeof STEPS)[number]['kind'], formData: FormData) {
+  switch (stepKind) {
+    case 'customer-archetype':
+      return buildTextFieldPayload(formData, CUSTOMER_ARCHETYPE_FIELDS)
+    case 'bmc':
+      return buildTextFieldPayload(formData, BMC_FIELDS)
+    case 'pnl':
+      return buildTextFieldPayload(formData, PNL_INPUT_GROUPS.flatMap((group) => group.rows))
+    case 'cashflow':
+      return buildCashflowPayload(formData)
+    case 'tam':
+      return buildTextFieldPayload(formData, TAM_FIELDS)
+    case 'moat':
+      return buildTextFieldPayload(formData, MOAT_FIELDS)
+    default:
+      return buildDefaultStepPayload(formData)
+  }
 }
 
 function parseMoney(value: string | number | undefined) {
@@ -559,6 +605,25 @@ function AgentDraftField({ defaultValue, stepLabel }: { defaultValue: string; st
   )
 }
 
+function FeedbackField({ defaultValue }: { defaultValue: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <label style={bmcLabelStyle}>Feedback para reprocesar este paso</label>
+      <textarea
+        name="pending_feedback"
+        defaultValue={defaultValue}
+        rows={5}
+        placeholder="Qué debe corregir o rehacer el agente en la próxima corrida..."
+        style={{
+          ...textareaStyle,
+          minHeight: '120px',
+          borderColor: 'rgba(214,255,63,0.25)',
+        }}
+      />
+    </div>
+  )
+}
+
 function btnRow(saving: boolean) {
   return (
     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
@@ -595,6 +660,7 @@ export function IdeaWizard({ idea }: Props) {
   const [runningPipeline, setRunningPipeline] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const stepFormRef = useRef<HTMLFormElement | null>(null)
 
   const stepData = idea.step_data || {}
   const stepApprovals = idea.step_approvals || {}
@@ -622,7 +688,10 @@ export function IdeaWizard({ idea }: Props) {
     setRunningAgent(true)
     setError(null)
     setSuccess(null)
-    const result = await generateIdeaStepDraft(idea.id, activeStep)
+    const draftPayload = stepFormRef.current
+      ? buildStepPayloadForKind(STEPS[activeStep].kind, new FormData(stepFormRef.current))
+      : undefined
+    const result = await generateIdeaStepDraft(idea.id, activeStep, draftPayload)
     setRunningAgent(false)
     const agentError = result && 'error' in result ? result.error : null
     if (agentError) {
@@ -630,8 +699,8 @@ export function IdeaWizard({ idea }: Props) {
       return
     }
 
-    setSuccess(`${assignment.name} completó el borrador del paso ${activeStep + 1}.`)
-    setTimeout(() => setSuccess(null), 3000)
+    setSuccess(`${assignment.name} inició el reproceso del paso ${activeStep + 1}. Refresca en unos minutos para ver el nuevo draft.`)
+    setTimeout(() => setSuccess(null), 4000)
   }
 
   async function handleRunIdeaPipeline() {
@@ -920,6 +989,7 @@ export function IdeaWizard({ idea }: Props) {
             savedData={currentStepData || null}
             onSave={handleSave}
             saving={saving}
+            formRef={stepFormRef}
           />
         )}
 

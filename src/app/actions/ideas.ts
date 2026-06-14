@@ -9,7 +9,12 @@ import {
   isIdeaStepComplete,
   normalizeIdeaStepPayloadForSave,
 } from '@/lib/mission-control/ideas'
-import { generateProjectPrd, queueIdeaPipelineAutomation } from '@/lib/mission-control/automation'
+import {
+  generateProjectPrd,
+  queueIdeaPipelineAutomation,
+  startIdeaPipelineAutomation,
+  startIdeaStepAutomation,
+} from '@/lib/mission-control/automation'
 import { isIdeaReadyForReview } from '@/lib/mission-control/workflow'
 
 export async function createQuickIdea(formData: FormData) {
@@ -94,6 +99,7 @@ export async function createBusinessIdea(formData: FormData) {
   if (autoStart) {
     try {
       await queueIdeaPipelineAutomation(idea.id)
+      startIdeaPipelineAutomation(idea.id)
     } catch (automationError) {
       return {
         error:
@@ -153,8 +159,15 @@ export async function saveStepData(ideaId: string, step: number, data: Record<st
   return { success: true }
 }
 
-export async function generateIdeaStepDraft(ideaId: string, step: number) {
+export async function generateIdeaStepDraft(ideaId: string, step: number, data?: Record<string, unknown>) {
   const supabase = await createClient()
+
+  if (data && Object.keys(data).length > 0) {
+    const saveResult = await saveStepData(ideaId, step, data)
+    if (saveResult?.error) {
+      return saveResult
+    }
+  }
 
   const { error: queueError } = await supabase
     .from('business_ideas')
@@ -173,6 +186,7 @@ export async function generateIdeaStepDraft(ideaId: string, step: number) {
 
   try {
     await queueIdeaPipelineAutomation(ideaId, { current_step: step })
+    startIdeaStepAutomation(ideaId, step)
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : 'No se pudo encolar el draft del paso.',
@@ -207,6 +221,7 @@ export async function generateIdeaAgentPipeline(ideaId: string) {
 
   try {
     const result = await queueIdeaPipelineAutomation(ideaId)
+    startIdeaPipelineAutomation(ideaId)
     return { success: true, generated_steps: TOTAL_IDEA_STEPS, queued: true, workflow_stage: result.workflow_stage }
   } catch (error) {
     return {

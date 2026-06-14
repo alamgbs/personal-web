@@ -29,6 +29,7 @@ export type IdeaStepAssignment = (typeof IDEA_STEP_ASSIGNMENTS)[number]
 const META_KEYS = new Set([
   'assigned_agent_slug',
   'assigned_agent_name',
+  'pending_feedback',
   'generated_at',
   'generated_by',
   'generated_by_name',
