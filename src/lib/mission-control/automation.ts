@@ -4,7 +4,10 @@ import { revalidatePath } from 'next/cache'
 import { createPrivilegedServerClient } from '@/lib/supabase/admin'
 import { generateIdeaStepWithHermes } from '@/lib/mission-control/idea-agent-runtime'
 import { FINAL_IDEA_STEP_INDEX, IDEA_STEPS } from '@/lib/mission-control/idea-steps'
-import { getIdeaStepAssignment, isIdeaStepComplete } from '@/lib/mission-control/ideas'
+import {
+  getIdeaStepAssignment,
+  isIdeaStepComplete,
+} from '@/lib/mission-control/ideas'
 import { generateProjectArtifactWithHermes } from '@/lib/mission-control/project-agent-runtime'
 import { isIdeaReadyForReview } from '@/lib/mission-control/workflow'
 
@@ -69,7 +72,7 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
       }
 
       const existing = stepData[step.toString()] as JsonRecord | undefined
-      if (isIdeaStepComplete(existing)) {
+      if (isIdeaStepComplete(step, existing)) {
         continue
       }
 

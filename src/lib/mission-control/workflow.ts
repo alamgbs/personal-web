@@ -1,4 +1,5 @@
-import { TOTAL_IDEA_STEPS } from '@/lib/mission-control/idea-steps'
+import { IDEA_STEPS, TOTAL_IDEA_STEPS } from '@/lib/mission-control/idea-steps'
+import { isIdeaStepComplete } from '@/lib/mission-control/ideas'
 
 export const IDEA_WORKFLOW_STAGES = [
   'idea_pipeline',
@@ -111,11 +112,9 @@ export function getAutomationTone(status: string | null | undefined) {
 export function getCompletedIdeaStepCount(stepData: Record<string, unknown> | null | undefined) {
   if (!stepData) return 0
 
-  return Object.values(stepData).filter((value) => {
-    if (!value || typeof value !== 'object') return false
-    const record = value as Record<string, unknown>
-    if (typeof record.content === 'string' && record.content.trim()) return true
-    return Object.values(record).some((field) => typeof field === 'string' && field.trim())
+  return IDEA_STEPS.filter((_, step) => {
+    const record = stepData[step.toString()] as Record<string, unknown> | undefined
+    return isIdeaStepComplete(step, record)
   }).length
 }
 

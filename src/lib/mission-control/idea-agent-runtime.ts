@@ -60,6 +60,7 @@ export async function generateIdeaStepWithHermes(params: {
     '',
     `Paso actual: ${stepDefinition.label}`,
     `Hint: ${stepDefinition.hint}`,
+    'Marco metodológico: usa un nivel de profundidad tipo Moonshot/ITTI (KAPI 2026): respuestas específicas, estructuradas, cuantificadas y listas para discusión ejecutiva.',
     stepDefinition.questions.length
       ? `Preguntas guía:\n${stepDefinition.questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`
       : 'Preguntas guía: usa criterio experto para completar este paso con suficiente sustancia para aprobación ejecutiva.',
@@ -192,19 +193,47 @@ function buildJsonSchemaHint(step: number) {
 function buildStepSpecificGuidance(step: number) {
   switch (IDEA_STEPS[step]?.kind) {
     case 'customer-archetype':
-      return '- Hazlo hiperconcreto: marcas, hábitos, media, ejercicio, trabajo, experiencia y comportamiento de compra.'
+      return [
+        '- Completa todos los campos del arquetipo con señales observables, no generalidades.',
+        '- Incluye JTBD, pains, gains, hábitos, canales y una cita que sonaría real en entrevista.',
+        '- Prioriza un segmento accesible, con dolor intenso y capacidad de pago.',
+      ].join('\n')
     case 'bmc':
-      return '- Completa los 9 bloques del BMC con contenido accionable. No repitas la misma idea en todos los campos.'
+      return [
+        '- Completa los 9 bloques del BMC con contenido accionable y mutuamente consistente.',
+        '- Evita repetir la misma frase en múltiples campos: cada bloque debe agregar una pieza distinta del modelo.',
+        '- Haz explícita la lógica de captura de valor: quién paga, por qué, por qué canal y con qué estructura de costos.',
+      ].join('\n')
     case 'pnl':
-      return '- Usa la tabla de ingresos/costos/opex como estructura real del P&L. Los números deben ser internamente consistentes.'
+      return [
+        '- Usa la tabla de ingresos/costos/opex como estructura real del P&L.',
+        '- Los números deben ser internamente consistentes con margen de contribución, EBITDA, CAC y LTV.',
+        '- No dejes cifras sueltas: cada supuesto debe tener una lógica breve detrás.',
+      ].join('\n')
     case 'cashflow':
-      return '- Usa los periodos M1-M6, Q3-Q10, Y5 y Y10. Completa composición de ingresos y egresos, no solo totales.'
+      return [
+        '- Usa los periodos M1-M6, Q3-Q10, Y5 y Y10.',
+        '- Completa composición de ingresos y egresos, no solo totales agregados.',
+        '- Piensa como operador financiero: diferencia caja vs rentabilidad, burn vs runway y timing de cobros/pagos.',
+      ].join('\n')
     case 'tam':
-      return '- Explica método top-down o bottom-up y mantén coherencia entre TAM, SAM y SOM.'
+      return [
+        '- Explica si el sizing es top-down, bottom-up o híbrido.',
+        '- Mantén coherencia entre TAM, SAM y SOM; cada reducción debe justificarse.',
+        '- Evita números inflados: prioriza credibilidad y foco sobre grandilocuencia.',
+      ].join('\n')
     case 'moat':
-      return '- Evalúa switching costs, datos, comunidad, distribución, lock-in, marca y economías de escala con honestidad estratégica.'
+      return [
+        '- Evalúa switching costs, datos, comunidad, distribución, lock-in, marca y economías de escala con honestidad estratégica.',
+        '- Responde qué tendría que superar un competidor capitalizado para quitar esta ventaja.',
+        '- Diferencia claramente el moat actual del moat que todavía debe construirse.',
+      ].join('\n')
     default:
-      return '- Entrega una síntesis lista para revisión ejecutiva, concreta y accionable.'
+      return [
+        '- Entrega una síntesis concreta, accionable y lista para revisión ejecutiva.',
+        '- Cuantifica frecuencia, intensidad, costo, hipótesis o criterios de éxito cuando aplique.',
+        '- Evita copy genérico: prioriza observables, decisiones y trade-offs.',
+      ].join('\n')
   }
 }
 

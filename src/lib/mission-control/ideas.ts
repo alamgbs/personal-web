@@ -9,6 +9,7 @@ import {
   MOAT_FIELDS,
   TAM_FIELDS,
 } from '@/lib/mission-control/idea-steps'
+import { upgradeLegacyIdeaStepPayload } from '@/lib/mission-control/idea-step-migration'
 
 export const IDEA_STEP_ASSIGNMENTS = [
   { slug: 'cx-analyst', name: 'CX Analyst', team: 'Marketing' },
@@ -111,7 +112,7 @@ export function normalizeGeneratedStepPayload(step: number, raw: Record<string, 
 
 export function normalizeIdeaStepData(step: number, raw: Record<string, unknown> | null | undefined) {
   const assignment = getIdeaStepAssignment(step)
-  const data = (raw || {}) as Record<string, unknown>
+  const data = upgradeLegacyIdeaStepPayload(step, (raw || {}) as Record<string, unknown>)
 
   const legacyAware = applyLegacyAliases(step, data)
   const normalizedStructured = normalizeGeneratedStepPayload(step, legacyAware)
@@ -124,17 +125,40 @@ export function normalizeIdeaStepData(step: number, raw: Record<string, unknown>
   }
 }
 
-export function isIdeaStepComplete(raw: Record<string, unknown> | null | undefined) {
-  const data = (raw || {}) as Record<string, unknown>
-
-  if (typeof data.content === 'string' && data.content.trim().length > 0) {
-    return true
+export function normalizeIdeaStepPayloadForSave(
+  step: number,
+  existing: Record<string, unknown> | null | undefined,
+  incoming: Record<string, unknown> | null | undefined
+) {
+  const existingData = upgradeLegacyIdeaStepPayload(step, (existing || {}) as Record<string, unknown>)
+  const incomingData = upgradeLegacyIdeaStepPayload(step, (incoming || {}) as Record<string, unknown>)
+  const merged = {
+    ...existingData,
+    ...incomingData,
   }
 
-  return Object.entries(data).some(([key, value]) => {
-    if (META_KEYS.has(key)) return false
-    return typeof value === 'string' && value.trim().length > 0
-  })
+  const aliasAware = applyLegacyAliases(step, merged)
+  const normalizedStructured = normalizeGeneratedStepPayload(step, aliasAware)
+  const metadata = pickMetaFields(existingData, incomingData)
+
+  return {
+    ...normalizedStructured,
+    ...metadata,
+  }
+}
+
+export function isIdeaStepComplete(step: number, raw: Record<string, unknown> | null | undefined) {
+  const normalized = normalizeIdeaStepPayloadForSave(step, raw, raw)
+  const structuredKeys = getStructuredFieldKeys(step)
+
+  if (structuredKeys.length > 0) {
+    return structuredKeys.some((key) => {
+      const value = normalized[key]
+      return typeof value === 'string' && value.trim().length > 0
+    })
+  }
+
+  return typeof normalized.content === 'string' && normalized.content.trim().length > 0
 }
 
 function applyLegacyAliases(step: number, raw: Record<string, unknown>) {
@@ -171,6 +195,20 @@ function buildStructuredSummary(step: number, data: Record<string, string>) {
     .filter(([key, value]) => key !== 'content' && !META_KEYS.has(key) && value.trim())
     .map(([key, value]) => `- ${labels[key] || key}: ${value.trim()}`)
     .join('\n')
+}
+
+function pickMetaFields(...records: Record<string, unknown>[]) {
+  const metadata: Record<string, unknown> = {}
+
+  for (const record of records) {
+    for (const key of META_KEYS) {
+      if (record[key] !== undefined) {
+        metadata[key] = record[key]
+      }
+    }
+  }
+
+  return metadata
 }
 
 export function getIdeaFinalStepIndex() {
