@@ -27,11 +27,34 @@ export const IDEA_STEP_ASSIGNMENTS = [
   { slug: 'hermes', name: 'Hermes', team: 'Command' },
 ] as const
 
-export type IdeaStepAssignment = (typeof IDEA_STEP_ASSIGNMENTS)[number]
+const DEFAULT_PROFILE_BY_SLUG: Record<string, string> = {
+  hermes: 'mc-hermes',
+  'product-lead': 'mc-product-lead',
+  research: 'mc-research',
+  'finance-analyst': 'mc-finance-analyst',
+  'cx-analyst': 'mc-cx-analyst',
+}
+
+const DEFAULT_SKILLS_BY_SLUG: Record<string, readonly string[]> = {
+  hermes: ['mission-control-workflows', 'hermes-agent'],
+  'product-lead': ['mission-control-workflows'],
+  research: ['mission-control-workflows'],
+  'finance-analyst': ['mission-control-workflows'],
+  'cx-analyst': ['mission-control-workflows'],
+}
+
+export type IdeaStepAssignment = (typeof IDEA_STEP_ASSIGNMENTS)[number] & {
+  profile: string | null
+  skillName: string | null
+  skillNames: string[]
+}
 
 const META_KEYS = new Set([
   'assigned_agent_slug',
   'assigned_agent_name',
+  'assigned_profile_name',
+  'assigned_skill_name',
+  'assigned_skill_names',
   'pending_feedback',
   'generated_at',
   'generated_by',
@@ -41,7 +64,15 @@ const META_KEYS = new Set([
 ])
 
 export function getIdeaStepAssignment(step: number): IdeaStepAssignment {
-  return IDEA_STEP_ASSIGNMENTS[step] || IDEA_STEP_ASSIGNMENTS[0]
+  const assignment = IDEA_STEP_ASSIGNMENTS[step] || IDEA_STEP_ASSIGNMENTS[0]
+  const skillNames = [...(DEFAULT_SKILLS_BY_SLUG[assignment.slug] || ['mission-control-workflows'])]
+
+  return {
+    ...assignment,
+    profile: DEFAULT_PROFILE_BY_SLUG[assignment.slug] || null,
+    skillName: skillNames[0] || null,
+    skillNames,
+  }
 }
 
 export function getStructuredFieldKeys(step: number) {
@@ -147,6 +178,14 @@ export function normalizeIdeaStepData(step: number, raw: Record<string, unknown>
     ...normalizedStructured,
     assigned_agent_slug: (legacyAware.assigned_agent_slug as string) || assignment.slug,
     assigned_agent_name: (legacyAware.assigned_agent_name as string) || assignment.name,
+    assigned_profile_name: (legacyAware.assigned_profile_name as string) || assignment.profile,
+    assigned_skill_name: (legacyAware.assigned_skill_name as string) || assignment.skillName,
+    assigned_skill_names: normalizeSkillNames(
+      legacyAware.assigned_skill_names,
+      assignment.skillNames,
+      legacyAware.assigned_skill_name as string | undefined,
+      assignment.skillName
+    ),
   }
 }
 
@@ -170,6 +209,32 @@ export function normalizeIdeaStepPayloadForSave(
     ...normalizedStructured,
     ...metadata,
   }
+}
+
+function normalizeSkillNames(
+  value: unknown,
+  fallback: readonly string[],
+  singular?: string | null,
+  fallbackSingular?: string | null
+) {
+  if (Array.isArray(value)) {
+    const normalized = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+    if (normalized.length > 0) return normalized
+  }
+
+  if (typeof singular === 'string' && singular.trim()) {
+    return [singular.trim()]
+  }
+
+  if (fallback.length > 0) {
+    return [...fallback]
+  }
+
+  if (typeof fallbackSingular === 'string' && fallbackSingular.trim()) {
+    return [fallbackSingular.trim()]
+  }
+
+  return []
 }
 
 export function isIdeaStepComplete(step: number, raw: Record<string, unknown> | null | undefined) {

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { queueIdeaPipelineAutomation, startIdeaPipelineAutomation } from '@/lib/mission-control/automation'
+import { queueIdeaPipelineAutomation } from '@/lib/mission-control/automation'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 type IntakePayload = {
@@ -88,7 +88,6 @@ export async function POST(request: Request) {
   if (payload.autoStart !== false) {
     try {
       await queueIdeaPipelineAutomation(data.id)
-      startIdeaPipelineAutomation(data.id)
     } catch (automationError) {
       return NextResponse.json(
         {

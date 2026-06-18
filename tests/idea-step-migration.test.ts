@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { migrateIdeaRecordShape, upgradeLegacyIdeaStepPayload } from '../src/lib/mission-control/idea-step-migration.ts'
+import { migrateIdeaRecordShape, upgradeLegacyIdeaStepPayload } from '../src/lib/mission-control/idea-step-migration'
 
 test('migrateIdeaRecordShape remaps the legacy step order into the new Moonshot flow', () => {
   const result = migrateIdeaRecordShape({

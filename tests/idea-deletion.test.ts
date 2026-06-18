@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { deleteIdeaGraph, type IdeaDeletionAdapter } from '../src/lib/mission-control/idea-deletion.ts'
+import { deleteIdeaGraph, type IdeaDeletionAdapter } from '../src/lib/mission-control/idea-deletion'
 
 function createAdapter() {
   const calls: string[] = []

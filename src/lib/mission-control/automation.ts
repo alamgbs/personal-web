@@ -1,16 +1,17 @@
 import 'server-only'
 
 import { revalidatePath } from 'next/cache'
-import { after } from 'next/server'
+import { buildSprintDependencyRows } from '@/lib/mission-control/backlog-runtime'
 import { createPrivilegedServerClient } from '@/lib/supabase/admin'
 import { generateIdeaStepWithHermes } from '@/lib/mission-control/idea-agent-runtime'
 import { FINAL_IDEA_STEP_INDEX, IDEA_STEPS } from '@/lib/mission-control/idea-steps'
 import {
   getIdeaStepAssignment,
   isIdeaStepComplete,
+  normalizeIdeaStepData,
 } from '@/lib/mission-control/ideas'
 import { generateProjectArtifactWithHermes } from '@/lib/mission-control/project-agent-runtime'
-import { isIdeaReadyForReview } from '@/lib/mission-control/workflow'
+import { canQueueIdeaStep, getNextPendingIdeaStep, isIdeaReadyForReview } from '@/lib/mission-control/workflow'
 
 type JsonRecord = Record<string, unknown>
 
@@ -28,6 +29,9 @@ type IdeaRow = {
   workflow_stage: string | null
   automation_status: string | null
   automation_run_count: number | null
+  automation_requested_at?: string | null
+  automation_completed_at?: string | null
+  last_automation_error?: string | null
 }
 
 type ProjectRow = {
@@ -45,23 +49,135 @@ type ProjectRow = {
   source_idea_id: string | null
 }
 
-export function startIdeaPipelineAutomation(ideaId: string) {
-  after(async () => {
-    try {
-      await runIdeaPipelineAutomation(ideaId)
-    } catch (error) {
-      console.error('[mission-control] background idea pipeline failed', { ideaId, error })
-    }
-  })
+type WorkItemPriority = 'low' | 'normal' | 'high' | 'urgent'
+
+type WorkItemStatus = 'queued' | 'claimed' | 'running' | 'completed' | 'needs_feedback' | 'failed' | 'cancelled'
+
+type WorkItemSourceType = 'business_idea_step' | 'project_artifact' | 'backlog_item_bridge'
+
+type WorkItemRow = {
+  id: string
+  source_type: WorkItemSourceType
+  source_id: string
+  source_step_index: number | null
+  idempotency_key: string
+  assignee_slug: string
+  profile_name: string | null
+  skill_names: string[] | null
+  status: WorkItemStatus
+  priority: WorkItemPriority
+  input_json: JsonRecord | null
 }
 
-export function startIdeaStepAutomation(ideaId: string, step: number) {
-  after(async () => {
-    try {
-      await runIdeaStepAutomation(ideaId, step)
-    } catch (error) {
-      console.error('[mission-control] background idea step rerun failed', { ideaId, step, error })
-    }
+function asJsonRecord(value: unknown): JsonRecord {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  return value as JsonRecord
+}
+
+function buildIdeaStepIdempotencyKey(ideaId: string, step: number) {
+  return `business_idea_step:${ideaId}:${step}`
+}
+
+function buildProjectArtifactIdempotencyKey(projectId: string, artifact: string) {
+  return `project_artifact:${projectId}:${artifact}`
+}
+
+async function upsertWorkItem(params: {
+  sourceType: WorkItemSourceType
+  sourceId: string
+  sourceStepIndex?: number | null
+  idempotencyKey: string
+  assigneeSlug: string
+  profileName?: string | null
+  skillNames?: string[]
+  priority?: WorkItemPriority
+  status?: WorkItemStatus
+  inputJson?: JsonRecord
+  outputJson?: JsonRecord | null
+  outputMarkdown?: string | null
+  claimedBy?: string | null
+  claimedAt?: string | null
+  startedAt?: string | null
+  heartbeatAt?: string | null
+  completedAt?: string | null
+  lastError?: string | null
+}) {
+  const supabase = await createPrivilegedServerClient()
+  const status = params.status || 'queued'
+  const isTerminal = ['completed', 'needs_feedback', 'failed', 'cancelled'].includes(status)
+  const payload = {
+    source_type: params.sourceType,
+    source_id: params.sourceId,
+    source_step_index: params.sourceStepIndex ?? null,
+    idempotency_key: params.idempotencyKey,
+    assignee_slug: params.assigneeSlug,
+    profile_name: params.profileName ?? null,
+    skill_names: params.skillNames?.length ? params.skillNames : ['mission-control-workflows'],
+    status,
+    priority: params.priority || 'normal',
+    input_json: params.inputJson || {},
+    output_json: params.outputJson ?? null,
+    output_markdown: params.outputMarkdown ?? null,
+    claimed_by: params.claimedBy ?? null,
+    claimed_at: params.claimedAt ?? null,
+    started_at: params.startedAt ?? null,
+    heartbeat_at: params.heartbeatAt ?? null,
+    completed_at: params.completedAt ?? (isTerminal ? new Date().toISOString() : null),
+    last_error: params.lastError ?? null,
+    updated_at: new Date().toISOString(),
+  }
+
+  const { data, error } = await supabase
+    .from('mission_control_work_items')
+    .upsert(payload, { onConflict: 'idempotency_key' })
+    .select('id, source_type, source_id, source_step_index, idempotency_key, assignee_slug, profile_name, skill_names, status, priority, input_json')
+    .single()
+
+  if (error || !data) {
+    throw new Error(error?.message || 'No se pudo encolar el Mission Control work item.')
+  }
+
+  return data as WorkItemRow
+}
+
+async function upsertIdeaStepWorkItem(params: {
+  idea: IdeaRow
+  step: number
+  assignment: ReturnType<typeof getIdeaStepAssignment>
+  stepData: JsonRecord
+  status: WorkItemStatus
+  outputJson?: JsonRecord | null
+  outputMarkdown?: string | null
+}) {
+  return upsertWorkItem({
+    sourceType: 'business_idea_step',
+    sourceId: params.idea.id,
+    sourceStepIndex: params.step,
+    idempotencyKey: buildIdeaStepIdempotencyKey(params.idea.id, params.step),
+    assigneeSlug: params.assignment.slug,
+    profileName: params.assignment.profile,
+    skillNames: params.assignment.skillNames,
+    priority: params.step === FINAL_IDEA_STEP_INDEX ? 'high' : 'normal',
+    status: params.status,
+    inputJson: {
+      action: 'generate_step',
+      idea_id: params.idea.id,
+      idea_title: params.idea.title,
+      idea_summary: params.idea.summary,
+      step: params.step,
+      step_label: IDEA_STEPS[params.step]?.label || `Paso ${params.step + 1}`,
+      assigned_agent_slug: params.assignment.slug,
+      assigned_agent_name: params.assignment.name,
+      assigned_profile_name: params.assignment.profile,
+      assigned_skill_name: params.assignment.skillName,
+      assigned_skill_names: params.assignment.skillNames,
+      step_payload: asJsonRecord(params.stepData[params.step.toString()]),
+    },
+    outputJson: params.outputJson ?? null,
+    outputMarkdown: params.outputMarkdown ?? null,
   })
 }
 
@@ -84,7 +200,7 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
     .eq('id', ideaId)
 
   let stepData = (idea.step_data as JsonRecord) || {}
-  const approvals = (idea.step_approvals as JsonRecord) || {}
+  let approvals = (idea.step_approvals as JsonRecord) || {}
 
   try {
     for (const step of IDEA_STEPS.map((_, index) => index)) {
@@ -94,6 +210,9 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
 
       const existing = stepData[step.toString()] as JsonRecord | undefined
       if (isIdeaStepComplete(step, existing)) {
+        if (!approvals[step.toString()]) {
+          break
+        }
         continue
       }
 
@@ -118,19 +237,39 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
         },
       })
 
+      const mergedStep = normalizeIdeaStepData(step, {
+        ...(existing || {}),
+        ...generated.stepData,
+        assigned_agent_slug: assignment.slug,
+        assigned_agent_name: assignment.name,
+        assigned_profile_name: assignment.profile,
+        assigned_skill_name: assignment.skillName,
+        assigned_skill_names: assignment.skillNames,
+        generated_at: generated.generated_at,
+        generated_by: agent.slug,
+        generated_by_name: agent.name,
+        generation_provider: generated.provider,
+        generation_model: generated.model,
+      })
+
       stepData = {
         ...stepData,
-        [step.toString()]: {
-          ...(existing || {}),
-          ...generated.stepData,
-          assigned_agent_slug: assignment.slug,
-          assigned_agent_name: assignment.name,
-          generated_at: generated.generated_at,
-          generated_by: agent.slug,
-          generated_by_name: agent.name,
-          generation_provider: generated.provider,
-          generation_model: generated.model,
-        },
+        [step.toString()]: mergedStep,
+      }
+
+      await upsertIdeaStepWorkItem({
+        idea,
+        step,
+        assignment,
+        stepData,
+        status: 'needs_feedback',
+        outputJson: mergedStep,
+        outputMarkdown: generated.content,
+      })
+
+      approvals = {
+        ...approvals,
+        [step.toString()]: null,
       }
 
       const { error: stepUpdateError } = await supabase
@@ -140,7 +279,10 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
           current_step: step,
           status: 'in_analysis',
           workflow_stage: 'idea_pipeline',
-          automation_status: 'running',
+          automation_status: 'needs_feedback',
+          automation_requested_at: idea.automation_requested_at || new Date().toISOString(),
+          automation_completed_at: new Date().toISOString(),
+          review_requested_at: null,
           last_automation_error: null,
         })
         .eq('id', ideaId)
@@ -151,13 +293,16 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
     }
 
     const readyForReview = isIdeaReadyForReview(stepData)
+    const pendingStep = IDEA_STEPS.findIndex((_, index) => !approvals[index.toString()])
+    const currentStep = pendingStep === -1 ? FINAL_IDEA_STEP_INDEX : pendingStep
+    const workflowStage = readyForReview ? 'idea_review' : 'idea_pipeline'
     const { error: finalizeError } = await supabase
       .from('business_ideas')
       .update({
         step_data: stepData,
-        current_step: readyForReview ? FINAL_IDEA_STEP_INDEX : idea.current_step || 0,
-        workflow_stage: readyForReview ? 'idea_review' : 'idea_pipeline',
-        automation_status: readyForReview ? 'needs_feedback' : 'completed',
+        current_step: currentStep,
+        workflow_stage: workflowStage,
+        automation_status: 'needs_feedback',
         review_requested_at: readyForReview ? new Date().toISOString() : null,
         automation_completed_at: new Date().toISOString(),
         last_automation_error: null,
@@ -198,8 +343,13 @@ export async function runIdeaStepAutomation(ideaId: string, step: number) {
   }
 
   const currentStepData = (idea.step_data as JsonRecord) || {}
+  const currentApprovals = (idea.step_approvals as JsonRecord) || {}
   const existing = currentStepData[step.toString()] as JsonRecord | undefined
   const assignment = getIdeaStepAssignment(step)
+
+  if (step > 0 && !currentApprovals[(step - 1).toString()]) {
+    throw new Error(`No se puede generar el paso ${step + 1} antes de aprobar el paso ${step}.`)
+  }
 
   await supabase
     .from('business_ideas')
@@ -233,20 +383,35 @@ export async function runIdeaStepAutomation(ideaId: string, step: number) {
       },
     })
 
+    const mergedStep = normalizeIdeaStepData(step, {
+      ...(existing || {}),
+      ...generated.stepData,
+      assigned_agent_slug: assignment.slug,
+      assigned_agent_name: assignment.name,
+      assigned_profile_name: assignment.profile,
+      assigned_skill_name: assignment.skillName,
+      assigned_skill_names: assignment.skillNames,
+      generated_at: generated.generated_at,
+      generated_by: agent.slug,
+      generated_by_name: agent.name,
+      generation_provider: generated.provider,
+      generation_model: generated.model,
+    })
+
     const stepData = {
       ...currentStepData,
-      [step.toString()]: {
-        ...(existing || {}),
-        ...generated.stepData,
-        assigned_agent_slug: assignment.slug,
-        assigned_agent_name: assignment.name,
-        generated_at: generated.generated_at,
-        generated_by: agent.slug,
-        generated_by_name: agent.name,
-        generation_provider: generated.provider,
-        generation_model: generated.model,
-      },
+      [step.toString()]: mergedStep,
     }
+
+    await upsertIdeaStepWorkItem({
+      idea,
+      step,
+      assignment,
+      stepData,
+      status: 'needs_feedback',
+      outputJson: mergedStep,
+      outputMarkdown: generated.content,
+    })
 
     const readyForReview = isIdeaReadyForReview(stepData)
     const { error: updateError } = await supabase
@@ -256,7 +421,7 @@ export async function runIdeaStepAutomation(ideaId: string, step: number) {
         current_step: step,
         status: 'in_analysis',
         workflow_stage: readyForReview ? 'idea_review' : 'idea_pipeline',
-        automation_status: readyForReview ? 'needs_feedback' : 'completed',
+        automation_status: 'needs_feedback',
         review_requested_at: readyForReview ? new Date().toISOString() : null,
         automation_completed_at: new Date().toISOString(),
         last_automation_error: null,
@@ -289,6 +454,24 @@ export async function queueIdeaPipelineAutomation(
   overrides: Partial<Pick<IdeaRow, 'current_step'>> = {}
 ) {
   const supabase = await createPrivilegedServerClient()
+  const idea = await fetchIdea(ideaId)
+
+  if (!idea) {
+    throw new Error('Idea no encontrada.')
+  }
+
+  const requestedStep = typeof overrides.current_step === 'number' ? overrides.current_step : null
+  const approvals = (idea.step_approvals as JsonRecord) || {}
+  const nextPendingStep = getNextPendingIdeaStep(approvals)
+  const step = requestedStep ?? nextPendingStep ?? idea.current_step ?? 0
+
+  if (!canQueueIdeaStep(approvals, step)) {
+    throw new Error(`No se puede encolar el paso ${step + 1} sin aprobar antes el paso previo.`)
+  }
+
+  if (requestedStep === null && nextPendingStep === null) {
+    throw new Error('No hay pasos pendientes para encolar en esta idea.')
+  }
 
   const updatePayload: {
     workflow_stage: string
@@ -305,10 +488,7 @@ export async function queueIdeaPipelineAutomation(
     automation_completed_at: null,
     review_requested_at: null,
     last_automation_error: null,
-  }
-
-  if (typeof overrides.current_step === 'number') {
-    updatePayload.current_step = overrides.current_step
+    current_step: step,
   }
 
   const { error } = await supabase.from('business_ideas').update(updatePayload).eq('id', ideaId)
@@ -317,8 +497,39 @@ export async function queueIdeaPipelineAutomation(
     throw new Error(error.message)
   }
 
+  const assignment = getIdeaStepAssignment(step)
+  const currentStepData = ((idea.step_data as JsonRecord) || {})[step.toString()] as JsonRecord | undefined
+
+  const workItem = await upsertWorkItem({
+    sourceType: 'business_idea_step',
+    sourceId: ideaId,
+    sourceStepIndex: step,
+    idempotencyKey: buildIdeaStepIdempotencyKey(ideaId, step),
+    assigneeSlug: assignment.slug,
+    profileName: assignment.profile,
+    skillNames: assignment.skillNames,
+    priority: step === 0 ? 'high' : 'normal',
+    inputJson: {
+      action: 'generate_step',
+      idea_id: ideaId,
+      step,
+      assigned_agent_slug: assignment.slug,
+      assigned_agent_name: assignment.name,
+      assigned_profile_name: assignment.profile,
+      assigned_skill_names: assignment.skillNames,
+      pending_feedback: typeof currentStepData?.pending_feedback === 'string' ? currentStepData.pending_feedback : null,
+      rerun: typeof overrides.current_step === 'number',
+    },
+  })
+
   revalidatePath('/mission-control/ideas')
-  return { success: true, queued: true, workflow_stage: 'idea_pipeline' as const }
+  return {
+    success: true,
+    queued: true,
+    workflow_stage: 'idea_pipeline' as const,
+    work_item_id: workItem.id,
+    queued_step: step,
+  }
 }
 
 export async function ensureProjectForIdea(ideaId: string) {
@@ -426,92 +637,28 @@ export async function ensureProjectForIdea(ideaId: string) {
 }
 
 export async function generateProjectPrd(ideaId: string) {
-  const supabase = await createPrivilegedServerClient()
-  const idea = await fetchIdea(ideaId)
-
-  if (!idea) {
-    throw new Error('Idea no encontrada.')
-  }
-
   const project = await ensureProjectForIdea(ideaId)
 
-  const { data: agent, error: agentError } = await supabase
-    .from('agents')
-    .select('name, slug, team, role, soul_short, skills, responsibilities, llm_model')
-    .eq('slug', 'product-lead')
-    .single()
-
-  if (agentError || !agent) {
-    throw new Error(agentError?.message || 'No se encontró Product Lead.')
-  }
-
-  await supabase
-    .from('projects')
-    .update({ execution_status: 'pending_prd', updated_at: new Date().toISOString() })
-    .eq('id', project.id)
-
-  const generated = await generateProjectArtifactWithHermes({
-    artifact: 'prd',
-    agent,
-    project: {
-      name: project.name,
-      slug: project.slug,
-      description: project.description,
-      ideaTitle: idea.title,
-      ideaSummary: idea.summary,
-      stepData: (idea.step_data as JsonRecord) || {},
+  const workItem = await upsertWorkItem({
+    sourceType: 'project_artifact',
+    sourceId: project.id,
+    idempotencyKey: buildProjectArtifactIdempotencyKey(project.id, 'prd'),
+    assigneeSlug: 'product-lead',
+    profileName: 'mc-product-lead',
+    skillNames: ['mission-control-workflows'],
+    priority: 'high',
+    inputJson: {
+      action: 'generate_prd',
+      project_id: project.id,
+      idea_id: ideaId,
+      artifact: 'prd',
     },
   })
-
-  const { error: projectUpdateError } = await supabase
-    .from('projects')
-    .update({
-      prd_markdown: generated.content,
-      prd_generated_at: generated.generated_at,
-      prd_generated_by: agent.slug,
-      prd_status: 'pending',
-      execution_status: 'prd_review',
-      notification_target: idea.notification_target,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', project.id)
-
-  if (projectUpdateError) {
-    throw new Error(projectUpdateError.message)
-  }
-
-  const { error: backlogUpdateError } = await supabase
-    .from('backlog_items')
-    .update({
-      description: generated.content,
-      artifact_markdown: generated.content,
-      stage: 'prd',
-      execution_mode: 'planning',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('project_id', project.id)
-    .eq('title', `PRD · ${project.name}`)
-
-  if (backlogUpdateError) {
-    throw new Error(backlogUpdateError.message)
-  }
-
-  await supabase
-    .from('business_ideas')
-    .update({
-      status: 'in_development',
-      workflow_stage: 'prd_review',
-      automation_status: 'needs_feedback',
-      review_requested_at: new Date().toISOString(),
-      automation_completed_at: new Date().toISOString(),
-      last_automation_error: null,
-    })
-    .eq('id', idea.id)
 
   revalidatePath('/mission-control/ideas')
   revalidatePath('/mission-control/proyectos')
   revalidatePath(`/mission-control/proyectos/${project.slug}`)
-  return { success: true, projectId: project.id }
+  return { success: true, projectId: project.id, work_item_id: workItem.id, queued: true }
 }
 
 export async function generateProjectPlanning(projectId: string) {
@@ -624,7 +771,21 @@ export async function generateProjectPlanning(projectId: string) {
       stage: 'planning',
       position: 3,
     },
-  ]
+  ] satisfies Array<{
+    project_id: string
+    title: string
+    description: string
+    status: string
+    priority: string
+    type: string
+    assignee_slug: string
+    review_owner_slug: string
+    tags: string[]
+    required_skills: string[]
+    execution_mode: string
+    stage: string
+    position: number
+  }>
 
   const { data: existingItems, error: existingItemsError } = await supabase
     .from('backlog_items')
@@ -768,11 +929,26 @@ export async function approvePlanningAndSeedSprint(projectId: string) {
       stage: 'review',
       position: 13,
     },
-  ]
+  ] satisfies Array<{
+    project_id: string
+    sprint_number: number
+    title: string
+    description: string
+    status: string
+    priority: string
+    type: string
+    assignee_slug: string
+    review_owner_slug: string
+    tags: string[]
+    required_skills: string[]
+    execution_mode: string
+    stage: string
+    position: number
+  }>
 
   const { data: existingItems, error: existingItemsError } = await supabase
     .from('backlog_items')
-    .select('title')
+    .select('id, title')
     .eq('project_id', project.id)
     .eq('sprint_number', sprintNumber)
 
@@ -784,9 +960,42 @@ export async function approvePlanningAndSeedSprint(projectId: string) {
   const tasksToInsert = sprintTasks.filter((item) => !existingTitles.has(item.title))
 
   if (tasksToInsert.length > 0) {
-    const { error: insertTasksError } = await supabase.from('backlog_items').insert(tasksToInsert)
+    const { error: insertTasksError } = await supabase
+      .from('backlog_items')
+      .insert(tasksToInsert)
     if (insertTasksError) {
       throw new Error(insertTasksError.message)
+    }
+  }
+
+  const { data: sprintBacklogItems, error: sprintBacklogItemsError } = await supabase
+    .from('backlog_items')
+    .select('id, title')
+    .eq('project_id', project.id)
+    .eq('sprint_number', sprintNumber)
+
+  if (sprintBacklogItemsError) {
+    throw new Error(sprintBacklogItemsError.message)
+  }
+
+  const taskIdByTitle = new Map((sprintBacklogItems || []).map((item) => [item.title, item.id]))
+  const dependenciesToUpsert = buildSprintDependencyRows({
+    breakdownId: taskIdByTitle.get(`Sprint ${sprintNumber} · Product breakdown · ${project.name}`),
+    frontendId: taskIdByTitle.get(`Sprint ${sprintNumber} · Frontend MVP · ${project.name}`),
+    backendId: taskIdByTitle.get(`Sprint ${sprintNumber} · Backend core · ${project.name}`),
+    securityId: taskIdByTitle.get(`Sprint ${sprintNumber} · Security gate · ${project.name}`),
+  })
+
+  if (dependenciesToUpsert.length > 0) {
+    const { error: dependencyUpsertError } = await supabase
+      .from('backlog_item_dependencies')
+      .upsert(dependenciesToUpsert, {
+        onConflict: 'backlog_item_id,depends_on_backlog_item_id',
+        ignoreDuplicates: true,
+      })
+
+    if (dependencyUpsertError) {
+      throw new Error(dependencyUpsertError.message)
     }
   }
 

@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { AgentOrgChart } from '@/components/mission-control/AgentOrgChart'
 import { AgentRosterTable } from '@/components/mission-control/AgentRosterTable'
 import {
+  getLastVerifiedAt,
+  getRuntimeStatusLabel,
   sortAgents,
   type AgentRow,
 } from '@/lib/mission-control/agents'
@@ -13,7 +15,9 @@ export default async function AgentesPage() {
 
   const { data: agents, error } = await supabase
     .from('agents')
-    .select('id, name, slug, role, team, soul, soul_short, skills, model, llm_model, cost_tier, parent_id, responsibilities, status, avatar_emoji')
+    .select(
+      'id, name, slug, role, team, soul, soul_short, skills, model, llm_model, cost_tier, parent_id, responsibilities, status, avatar_emoji, runtime_profile_name, honcho_ai_peer, runtime_type, default_toolsets, default_skills, provider, memory_provider, runtime_status, last_verified_at'
+    )
 
   if (error) {
     console.error('Error fetching agents:', error)
@@ -22,6 +26,8 @@ export default async function AgentesPage() {
   const agentList = sortAgents((agents || []) as AgentRow[])
   const activeCount = agentList.filter((agent) => agent.status === 'active').length
   const premiumCount = agentList.filter((agent) => ['C10', 'C9'].includes(agent.cost_tier || '')).length
+  const runtimeReadyCount = agentList.filter((agent) => getRuntimeStatusLabel(agent) === 'active').length
+  const recentlyVerifiedCount = agentList.filter((agent) => Boolean(agent.last_verified_at)).length
 
   return (
     <div
@@ -67,14 +73,15 @@ export default async function AgentesPage() {
           }}
         >
           Roster canónico del sistema. Cada agente tiene identidad estable, soul corta,
-          primary skills, cost tier y un llm_model editable para evolucionar con el tiempo.
+          primary skills, cost tier, llm_model editable y una asignación explícita hacia
+          su runtime Hermes persistente.
         </p>
       </div>
 
       <section
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+          gridTemplateColumns: 'repeat(5, minmax(0, 1fr))',
           gap: '0.75rem',
           marginBottom: '1.5rem',
         }}
@@ -83,6 +90,8 @@ export default async function AgentesPage() {
           { label: 'Agentes', value: String(agentList.length) },
           { label: 'Activos', value: String(activeCount) },
           { label: 'Premium C9–C10', value: String(premiumCount) },
+          { label: 'Runtime ready', value: String(runtimeReadyCount) },
+          { label: 'Runtime verificados', value: String(recentlyVerifiedCount) },
         ].map((item) => (
           <div
             key={item.label}
@@ -175,11 +184,11 @@ export default async function AgentesPage() {
           Runtime note
         </div>
         <p style={{ margin: 0, color: 'var(--color-text-faint)', fontSize: '13px', lineHeight: 1.6 }}>
-          Por ahora Mission Control respeta la tabla canónica cargada en Supabase. El campo
-          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text)', margin: '0 0.3ch' }}>
-            llm_model
-          </span>
-          queda listo para cambiar proveedores o modelos más adelante sin redefinir el roster.
+          Mission Control ya puede leer desde Supabase el vínculo agente→perfil con
+          runtime status, profile name, peer de Honcho, provider, defaults operativos y
+          timestamp de última verificación. Esto deja el roster listo para enrutar trabajo
+          hacia perfiles Hermes reales sin redefinir la estructura del equipo.
+          Últimos checks visibles: {recentlyVerifiedCount > 0 ? getLastVerifiedAt(agentList.filter((agent) => agent.last_verified_at).sort((a, b) => new Date(b.last_verified_at || 0).getTime() - new Date(a.last_verified_at || 0).getTime())[0]) : 'sin verificaciones registradas'}.
         </p>
       </section>
     </div>

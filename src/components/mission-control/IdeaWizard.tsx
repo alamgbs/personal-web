@@ -1,11 +1,12 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   approveStep,
   deleteBusinessIdea,
   generateIdeaAgentPipeline,
   generateIdeaStepDraft,
+  getIdeaStepRuntimeSnapshot,
   promoteToBacklog,
   saveStepData,
 } from '@/app/actions/ideas'
@@ -55,6 +56,22 @@ type Idea = {
 
 type Props = {
   idea: Idea
+}
+
+type StepRuntimeSnapshot = {
+  id?: string
+  assignee_slug?: string | null
+  profile_name?: string | null
+  skill_names?: string[]
+  status?: string | null
+  attempt_count?: number | null
+  max_attempts?: number | null
+  last_error?: string | null
+  claimed_at?: string | null
+  started_at?: string | null
+  heartbeat_at?: string | null
+  completed_at?: string | null
+  updated_at?: string | null
 }
 
 const STEPS = IDEA_STEPS
@@ -205,7 +222,7 @@ function StepContent({
       >
         <AgentDraftField defaultValue={initialContent} stepLabel={stepDef.label} />
         <FeedbackField defaultValue={initialFeedback} />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '8px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '8px' }}>
           {BMC_FIELDS.map((field) => (
             <div key={field.key} style={structuredCardStyle}>
               <label style={bmcLabelStyle}>{field.label}</label>
@@ -805,6 +822,9 @@ export function IdeaWizard({ idea }: Props) {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const [runningAgent, setRunningAgent] = useState(false)
   const [runningPipeline, setRunningPipeline] = useState(false)
+  const [loadingRuntime, setLoadingRuntime] = useState(false)
+  const [runtimeError, setRuntimeError] = useState<string | null>(null)
+  const [runtimeByStep, setRuntimeByStep] = useState<Record<string, StepRuntimeSnapshot>>({})
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
   const stepFormRef = useRef<HTMLFormElement | null>(null)
@@ -817,6 +837,25 @@ export function IdeaWizard({ idea }: Props) {
     stepData[activeStep.toString()] as Record<string, unknown> | null
   ) as Record<string, unknown> | null
   const currentStepMeta = (currentStepData || {}) as Record<string, unknown>
+  const currentRuntime = runtimeByStep[activeStep.toString()] || null
+
+  async function refreshRuntimeSnapshot() {
+    setLoadingRuntime(true)
+    setRuntimeError(null)
+    const result = await getIdeaStepRuntimeSnapshot(idea.id)
+    setLoadingRuntime(false)
+
+    if (result?.error) {
+      setRuntimeError(result.error)
+      return
+    }
+
+    setRuntimeByStep(((result?.runtimeByStep as Record<string, StepRuntimeSnapshot> | undefined) || {}))
+  }
+
+  useEffect(() => {
+    void refreshRuntimeSnapshot()
+  }, [idea.id])
 
   async function handleSave(data: Record<string, unknown>) {
     setSaving(true)
@@ -847,6 +886,7 @@ export function IdeaWizard({ idea }: Props) {
     }
 
     setSuccess(`${assignment.name} inició el reproceso del paso ${activeStep + 1}. Refresca en unos minutos para ver el nuevo draft.`)
+    void refreshRuntimeSnapshot()
     setTimeout(() => setSuccess(null), 4000)
   }
 
@@ -867,6 +907,7 @@ export function IdeaWizard({ idea }: Props) {
         ? `Se ejecutaron ${result.generated_steps} pasos pendientes del pipeline.`
         : 'La idea ya tenía todos los pasos con contenido.'
     )
+    void refreshRuntimeSnapshot()
     setTimeout(() => setSuccess(null), 4000)
   }
 
@@ -1089,6 +1130,56 @@ export function IdeaWizard({ idea }: Props) {
             <span>@{assignment.slug}</span>
           </div>
 
+          <div style={{ ...runtimeCardStyle, marginTop: '0.9rem' }}>
+            <div style={runtimeHeaderStyle}>
+              <span style={runtimeTitleStyle}>Runtime observability</span>
+              <button
+                type="button"
+                onClick={() => void refreshRuntimeSnapshot()}
+                disabled={loadingRuntime}
+                style={runtimeRefreshButtonStyle}
+              >
+                {loadingRuntime ? 'Actualizando…' : 'Actualizar runtime'}
+              </button>
+            </div>
+
+            <div style={runtimeGridStyle}>
+              <RuntimeDatum label="Assigned agent" value={String(currentStepMeta.assigned_agent_name || assignment.name)} hint={`@${String(currentStepMeta.assigned_agent_slug || assignment.slug)}`} />
+              <RuntimeDatum label="Profile" value={String(currentRuntime?.profile_name || currentStepMeta.assigned_profile_name || assignment.profile || '—')} />
+              <RuntimeDatum
+                label="Skill"
+                value={Array.isArray(currentRuntime?.skill_names) && currentRuntime?.skill_names.length
+                  ? currentRuntime.skill_names.join(', ')
+                  : Array.isArray(currentStepMeta.assigned_skill_names) && currentStepMeta.assigned_skill_names.length
+                  ? currentStepMeta.assigned_skill_names.map((skill) => String(skill)).join(', ')
+                  : String(currentStepMeta.assigned_skill_name || assignment.skillName || '—')}
+              />
+              <RuntimeDatum label="Status" value={String(currentRuntime?.status || 'sin work item')} tone={runtimeStatusTone(currentRuntime?.status)} />
+              <RuntimeDatum
+                label="Attempts"
+                value={typeof currentRuntime?.attempt_count === 'number'
+                  ? `${currentRuntime.attempt_count}${typeof currentRuntime?.max_attempts === 'number' ? `/${currentRuntime.max_attempts}` : ''}`
+                  : '—'}
+              />
+              <RuntimeDatum
+                label="Heartbeat"
+                value={formatRuntimeDate(currentRuntime?.heartbeat_at || currentRuntime?.updated_at || currentRuntime?.started_at)}
+              />
+            </div>
+
+            {currentRuntime?.last_error ? (
+              <div style={runtimeErrorBoxStyle}>
+                <span style={{ color: '#ff6a3d' }}>Last error</span>
+                <span>{currentRuntime.last_error}</span>
+              </div>
+            ) : runtimeError ? (
+              <div style={runtimeErrorBoxStyle}>
+                <span style={{ color: '#ff6a3d' }}>Runtime snapshot error</span>
+                <span>{runtimeError}</span>
+              </div>
+            ) : null}
+          </div>
+
           <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '1rem' }}>
             <button
               type="button"
@@ -1289,6 +1380,52 @@ function statusBg(s: string) {
   return m[s] || m.draft
 }
 
+function formatRuntimeDate(value: string | null | undefined) {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '—'
+  return parsed.toLocaleString('es-MX')
+}
+
+function runtimeStatusTone(status: string | null | undefined) {
+  switch (status) {
+    case 'completed':
+      return '#4ade80'
+    case 'running':
+      return 'var(--color-acid)'
+    case 'claimed':
+    case 'queued':
+      return '#60a5fa'
+    case 'failed':
+    case 'cancelled':
+      return 'var(--color-coral)'
+    case 'needs_feedback':
+      return '#fbbf24'
+    default:
+      return 'var(--color-text-faint)'
+  }
+}
+
+function RuntimeDatum({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string
+  value: string
+  hint?: string
+  tone?: string
+}) {
+  return (
+    <div style={runtimeDatumStyle}>
+      <div style={runtimeDatumLabelStyle}>{label}</div>
+      <div style={{ ...runtimeDatumValueStyle, color: tone || 'var(--color-text)' }}>{value}</div>
+      {hint ? <div style={runtimeDatumHintStyle}>{hint}</div> : null}
+    </div>
+  )
+}
+
 const textareaStyle: React.CSSProperties = {
   width: '100%',
   background: 'var(--color-surface-2)',
@@ -1369,6 +1506,92 @@ const secondaryGhostButtonStyle: React.CSSProperties = {
   borderRadius: '6px',
   padding: '8px 14px',
   cursor: 'pointer',
+}
+
+const runtimeCardStyle: React.CSSProperties = {
+  border: '1px solid var(--color-border)',
+  borderRadius: '10px',
+  background: 'rgba(17,17,16,0.9)',
+  padding: '12px',
+}
+
+const runtimeHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: '12px',
+  marginBottom: '12px',
+}
+
+const runtimeTitleStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '10px',
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+  color: 'var(--color-acid)',
+}
+
+const runtimeRefreshButtonStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '10px',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  background: 'transparent',
+  color: 'var(--color-text)',
+  border: '1px solid var(--color-border)',
+  borderRadius: '999px',
+  padding: '5px 10px',
+  cursor: 'pointer',
+}
+
+const runtimeGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: '10px',
+}
+
+const runtimeDatumStyle: React.CSSProperties = {
+  border: '1px solid rgba(232,230,223,0.08)',
+  borderRadius: '8px',
+  background: 'rgba(12,12,10,0.55)',
+  padding: '10px',
+  minHeight: '72px',
+}
+
+const runtimeDatumLabelStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '9px',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  color: 'var(--color-text-faint)',
+  marginBottom: '6px',
+}
+
+const runtimeDatumValueStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-body)',
+  fontSize: '13px',
+  lineHeight: 1.4,
+}
+
+const runtimeDatumHintStyle: React.CSSProperties = {
+  marginTop: '6px',
+  fontFamily: 'var(--font-mono)',
+  fontSize: '10px',
+  color: 'var(--color-text-faint)',
+}
+
+const runtimeErrorBoxStyle: React.CSSProperties = {
+  marginTop: '10px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+  padding: '10px 12px',
+  borderRadius: '8px',
+  border: '1px solid rgba(255,106,61,0.25)',
+  background: 'rgba(255,106,61,0.08)',
+  fontFamily: 'var(--font-mono)',
+  fontSize: '10px',
+  color: 'var(--color-text)',
 }
 
 const workflowPillStyle: React.CSSProperties = {

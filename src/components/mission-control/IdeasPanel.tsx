@@ -13,6 +13,12 @@ type Idea = {
   current_step: number | null
   step_data: Record<string, unknown> | null
   step_approvals: Record<string, unknown> | null
+  promoted_project_id?: string | null
+  workflow_stage?: string | null
+  automation_status?: string | null
+  notification_target?: string | null
+  automation_run_count?: number | null
+  last_automation_error?: string | null
 }
 
 type Props = {

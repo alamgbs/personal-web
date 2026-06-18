@@ -75,6 +75,18 @@ export function getProjectExecutionStatusLabel(status: string | null | undefined
   return labels[status || ''] || 'Pending PRD'
 }
 
+export function getBacklogStageLabel(stage: string | null | undefined) {
+  const labels: Record<string, string> = {
+    prd: 'PRD',
+    planning: 'Planning',
+    execution: 'Execution',
+    review: 'Review',
+    security: 'Security',
+  }
+
+  return labels[stage || ''] || 'Execution'
+}
+
 export function getWorkflowTone(stage: string | null | undefined) {
   const stageName = stage || 'idea_pipeline'
 
@@ -116,6 +128,37 @@ export function getCompletedIdeaStepCount(stepData: Record<string, unknown> | nu
     const record = stepData[step.toString()] as Record<string, unknown> | undefined
     return isIdeaStepComplete(step, record)
   }).length
+}
+
+function normalizeIdeaStepApprovals(stepApprovals: Record<string, unknown> | null | undefined) {
+  return (stepApprovals || {}) as Record<string, unknown>
+}
+
+export function isIdeaStepApproved(stepApprovals: Record<string, unknown> | null | undefined, step: number) {
+  const approvals = normalizeIdeaStepApprovals(stepApprovals)
+  return Boolean(approvals[step.toString()])
+}
+
+export function canQueueIdeaStep(stepApprovals: Record<string, unknown> | null | undefined, step: number) {
+  if (step < 0 || step >= TOTAL_IDEA_STEPS) {
+    return false
+  }
+
+  if (step === 0) {
+    return true
+  }
+
+  return isIdeaStepApproved(stepApprovals, step - 1)
+}
+
+export function getNextPendingIdeaStep(stepApprovals: Record<string, unknown> | null | undefined) {
+  for (let step = 0; step < TOTAL_IDEA_STEPS; step += 1) {
+    if (!isIdeaStepApproved(stepApprovals, step)) {
+      return step
+    }
+  }
+
+  return null
 }
 
 export function isIdeaReadyForReview(stepData: Record<string, unknown> | null | undefined) {

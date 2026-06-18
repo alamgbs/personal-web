@@ -14,6 +14,15 @@ export type AgentRow = {
   responsibilities: string[] | null
   status: string | null
   avatar_emoji: string | null
+  runtime_profile_name: string | null
+  honcho_ai_peer: string | null
+  runtime_type: string | null
+  default_toolsets: string[] | null
+  default_skills: string[] | null
+  provider: string | null
+  memory_provider: string | null
+  runtime_status: string | null
+  last_verified_at?: string | null
 }
 
 export const CANONICAL_AGENT_ORDER = [
@@ -113,4 +122,44 @@ export function getCostTierLabel(agent: Pick<AgentRow, 'cost_tier' | 'slug'>) {
 
 export function getSoulPreview(agent: Pick<AgentRow, 'soul_short' | 'soul'>) {
   return agent.soul_short || agent.soul || '—'
+}
+
+export function getRuntimeStatusLabel(agent: Pick<AgentRow, 'runtime_status' | 'slug'>) {
+  if (agent.runtime_status) return agent.runtime_status
+  if (agent.slug === 'alam') return 'human'
+  return 'disabled'
+}
+
+export function getRuntimeProfile(agent: Pick<AgentRow, 'runtime_profile_name' | 'slug'>) {
+  if (agent.runtime_profile_name) return agent.runtime_profile_name
+  if (agent.slug === 'alam') return '—'
+  return 'unassigned'
+}
+
+export function getHonchoPeer(agent: Pick<AgentRow, 'honcho_ai_peer'>) {
+  return agent.honcho_ai_peer || '—'
+}
+
+export function getLastVerifiedAt(agent: Pick<AgentRow, 'last_verified_at'>) {
+  if (!agent.last_verified_at) return '—'
+  const date = new Date(agent.last_verified_at)
+  if (Number.isNaN(date.getTime())) return agent.last_verified_at
+  return new Intl.DateTimeFormat('es-AR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date)
+}
+
+export function getRuntimeToolsets(agent: Pick<AgentRow, 'default_toolsets'>) {
+  return agent.default_toolsets?.length ? agent.default_toolsets.join(', ') : '—'
+}
+
+export function getRuntimeSkills(agent: Pick<AgentRow, 'default_skills'>) {
+  if (!agent.default_skills?.length) return '—'
+
+  const normalized = agent.default_skills
+    .map((skill) => (typeof skill === 'string' ? skill.trim() : ''))
+    .filter(Boolean)
+
+  return normalized.length ? normalized.join(', ') : '—'
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useTransition } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { updateAgentRuntime } from '@/app/actions/agents'
 import {
   AGENT_PROVIDER,
@@ -9,6 +9,12 @@ import {
   getAgentModel,
   getCostTierLabel,
   getDefaultCodexModelForTier,
+  getHonchoPeer,
+  getLastVerifiedAt,
+  getRuntimeProfile,
+  getRuntimeSkills,
+  getRuntimeStatusLabel,
+  getRuntimeToolsets,
   getSoulPreview,
   type AgentRow,
 } from '@/lib/mission-control/agents'
@@ -40,15 +46,12 @@ function buildDrafts(agents: AgentRow[]): DraftState {
 }
 
 export function AgentRosterTable({ agents }: Props) {
-  const [drafts, setDrafts] = useState<DraftState>(() => buildDrafts(agents))
+  const computedDrafts = useMemo(() => buildDrafts(agents), [agents])
+  const [drafts, setDrafts] = useState<DraftState>(computedDrafts)
   const [message, setMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
-
-  useEffect(() => {
-    setDrafts(buildDrafts(agents))
-  }, [agents])
 
   function updateDraft(id: string, patch: Partial<DraftState[string]>) {
     setDrafts((current) => ({
@@ -127,7 +130,7 @@ export function AgentRosterTable({ agents }: Props) {
               fontFamily: 'var(--font-body)',
             }}
           >
-            Provider operativo actual: <span style={{ color: 'var(--color-text)', fontFamily: 'var(--font-mono)' }}>{AGENT_PROVIDER}</span>. Edita soul corta, cost tier y modelo inline.
+            Provider operativo actual: <span style={{ color: 'var(--color-text)', fontFamily: 'var(--font-mono)' }}>{AGENT_PROVIDER}</span>. Edita soul corta, cost tier y modelo inline; el runtime registry se muestra como referencia operativa.
           </p>
         </div>
         <div
@@ -163,12 +166,30 @@ export function AgentRosterTable({ agents }: Props) {
             borderCollapse: 'collapse',
             fontFamily: 'var(--font-body)',
             fontSize: '13px',
-            minWidth: '1400px',
+            minWidth: '1900px',
           }}
         >
           <thead>
             <tr style={{ borderBottom: '1px solid var(--color-border)' }}>
-              {['Avatar', 'Nombre', 'Rol', 'Team', 'Soul corta', 'Primary skills', 'Cost', 'LLM model', 'Estado', 'Acción'].map((col) => (
+              {[
+                'Avatar',
+                'Nombre',
+                'Rol',
+                'Team',
+                'Runtime status',
+                'Profile',
+                'Honcho peer',
+                'Last verified',
+                'Runtime type',
+                'Toolsets',
+                'Skills runtime',
+                'Soul corta',
+                'Primary skills',
+                'Cost',
+                'LLM model',
+                'Estado',
+                'Acción',
+              ].map((col) => (
                 <th
                   key={col}
                   style={{
@@ -192,7 +213,7 @@ export function AgentRosterTable({ agents }: Props) {
             {agents.length === 0 ? (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={17}
                   style={{
                     padding: '1.5rem 12px',
                     color: 'var(--color-text-faint)',
@@ -206,13 +227,15 @@ export function AgentRosterTable({ agents }: Props) {
               </tr>
             ) : (
               agents.map((agent) => {
-                const draft = drafts[agent.id] || {
+                const draft = drafts[agent.id] || computedDrafts[agent.id] || {
                   cost_tier: agent.cost_tier || '',
                   llm_model: getAgentModel(agent) === '—' ? '' : getAgentModel(agent),
                   soul_short: getSoulPreview(agent) === '—' ? '' : getSoulPreview(agent),
                 }
                 const isHuman = agent.slug === 'alam'
                 const isSaving = savingId === agent.id && isPending
+                const runtimeStatus = getRuntimeStatusLabel(agent)
+                const runtimeStatusIsActive = runtimeStatus === 'active' || runtimeStatus === 'human'
 
                 return (
                   <tr key={agent.id} style={{ borderBottom: '1px solid rgba(42,42,38,0.5)' }}>
@@ -249,6 +272,37 @@ export function AgentRosterTable({ agents }: Props) {
                     <td style={{ padding: '10px 12px', color: 'var(--color-text-faint)', fontSize: '12px', verticalAlign: 'top' }}>
                       {agent.team || '—'}
                     </td>
+                    <td style={{ padding: '10px 12px', verticalAlign: 'top' }}>
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: '5px',
+                          fontFamily: 'var(--font-mono)',
+                          fontSize: '10px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.08em',
+                          color: runtimeStatusIsActive ? 'var(--color-acid)' : 'var(--color-text-faint)',
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: '6px',
+                            height: '6px',
+                            borderRadius: '50%',
+                            background: runtimeStatusIsActive ? 'var(--color-acid)' : 'var(--color-text-faint)',
+                            display: 'inline-block',
+                          }}
+                        />
+                        {runtimeStatus}
+                      </span>
+                    </td>
+                    <td style={monoCellStyle}>{getRuntimeProfile(agent)}</td>
+                    <td style={monoCellStyle}>{getHonchoPeer(agent)}</td>
+                    <td style={monoCellStyle}>{getLastVerifiedAt(agent)}</td>
+                    <td style={monoCellStyle}>{agent.runtime_type || '—'}</td>
+                    <td style={monoCellStyle}>{getRuntimeToolsets(agent)}</td>
+                    <td style={monoCellStyle}>{getRuntimeSkills(agent)}</td>
                     <td style={{ padding: '10px 12px', verticalAlign: 'top', minWidth: '320px' }}>
                       <textarea
                         value={draft.soul_short}
@@ -390,6 +444,15 @@ export function AgentRosterTable({ agents }: Props) {
       </div>
     </>
   )
+}
+
+const monoCellStyle: React.CSSProperties = {
+  padding: '10px 12px',
+  verticalAlign: 'top',
+  fontFamily: 'var(--font-mono)',
+  fontSize: '10px',
+  color: 'var(--color-text-faint)',
+  lineHeight: 1.6,
 }
 
 const selectStyle: React.CSSProperties = {

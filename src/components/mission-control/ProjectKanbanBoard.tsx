@@ -1,7 +1,8 @@
 'use client'
 
+import type React from 'react'
 import Link from 'next/link'
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useMemo, useOptimistic, useState, useTransition } from 'react'
 import {
   approveProjectPlanning,
   approveProjectPrd,
@@ -11,6 +12,7 @@ import {
   submitProjectSprintReview,
 } from '@/app/actions/projects'
 import {
+  getBacklogStageLabel,
   getProjectExecutionStatusLabel,
   getWorkflowTone,
 } from '@/lib/mission-control/workflow'
@@ -30,6 +32,23 @@ type BacklogItem = {
   stage?: string | null
   required_skills?: string[] | null
   artifact_markdown?: string | null
+  execution_mode?: string | null
+  dependency_ids?: string[]
+  dependency_count?: number
+  dependency_completed_count?: number
+  blocked_by?: string[]
+  is_executable?: boolean
+  assignee_profile?: string | null
+  runtime_status?: string | null
+  readiness_issues?: string[]
+  claimed_by?: string | null
+  claimed_at?: string | null
+  started_at?: string | null
+  heartbeat_at?: string | null
+  completed_at?: string | null
+  attempt_count?: number | null
+  last_error?: string | null
+  claim_status?: 'idle' | 'claimed' | 'running' | 'completed' | 'failed'
 }
 
 type Project = {
@@ -63,16 +82,21 @@ const COLUMNS = [
   { key: 'done', label: 'Done' },
 ] as const
 
+const READINESS_LABELS: Record<string, string> = {
+  status_not_backlog: 'status not backlog',
+  missing_assignee: 'missing assignee',
+  missing_runtime_profile: 'missing runtime profile',
+  inactive_runtime: 'inactive runtime',
+  human_assignee: 'human owner',
+  blocked_by_dependencies: 'waiting on deps',
+}
+
 export function ProjectKanbanBoard({ project, items }: Props) {
-  const [localItems, setLocalItems] = useState(items)
+  const [localItems, setLocalItems] = useOptimistic(items, (_currentItems, nextItems: BacklogItem[]) => nextItems)
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
-
-  useEffect(() => {
-    setLocalItems(items)
-  }, [items])
 
   const grouped = useMemo(() => {
     const sorted = [...localItems].sort((a, b) => (a.position || 0) - (b.position || 0))
@@ -356,13 +380,80 @@ export function ProjectKanbanBoard({ project, items }: Props) {
                     )}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                       {item.assignee_slug && <span style={pillStyle}>@{item.assignee_slug}</span>}
+                      {item.assignee_profile && <span style={pillStyle}>profile:{item.assignee_profile}</span>}
+                      {item.runtime_status && <span style={pillStyle}>runtime:{item.runtime_status}</span>}
+                      {item.claim_status && <span style={pillStyle}>claim:{item.claim_status}</span>}
                       {item.type && <span style={pillStyle}>{item.type}</span>}
-                      {item.stage && <span style={pillStyle}>{item.stage}</span>}
+                      {item.stage && <span style={pillStyle}>{getBacklogStageLabel(item.stage)}</span>}
+                      {item.execution_mode && <span style={pillStyle}>{item.execution_mode}</span>}
                       {item.sprint_number && <span style={pillStyle}>sprint {item.sprint_number}</span>}
                       {(item.tags || []).slice(0, 3).map((tag) => (
                         <span key={tag} style={pillStyle}>{tag}</span>
                       ))}
                     </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                      {item.required_skills?.slice(0, 5).map((skill) => (
+                        <span key={skill} style={pillStyle}>skill:{skill}</span>
+                      ))}
+                      {typeof item.dependency_count === 'number' && (
+                        <span style={pillStyle}>deps {item.dependency_completed_count || 0}/{item.dependency_count}</span>
+                      )}
+                      {item.is_executable === true && <span style={{ ...pillStyle, color: 'var(--color-acid)', borderColor: 'var(--color-acid)' }}>ready</span>}
+                      {item.is_executable === false && <span style={{ ...pillStyle, color: 'var(--color-coral)', borderColor: 'var(--color-coral)' }}>blocked</span>}
+                    </div>
+                    {(item.blocked_by?.length || item.readiness_issues?.length || item.claimed_by || item.artifact_markdown?.trim() || item.last_error) ? (
+                      <div
+                        style={{
+                          marginTop: '10px',
+                          padding: '10px',
+                          borderRadius: '8px',
+                          border: '1px solid rgba(255, 106, 61, 0.25)',
+                          background: 'rgba(255, 106, 61, 0.06)',
+                          display: 'grid',
+                          gap: '8px',
+                        }}
+                      >
+                        {item.blocked_by?.length ? (
+                          <div>
+                            <div style={blockerLabelStyle}>Dependency blockers</div>
+                            <div style={blockerValueStyle}>{item.blocked_by.map((dependencyId) => truncateId(dependencyId)).join(' · ')}</div>
+                          </div>
+                        ) : null}
+                        {item.readiness_issues?.length ? (
+                          <div>
+                            <div style={blockerLabelStyle}>Executable signals</div>
+                            <div style={blockerValueStyle}>{item.readiness_issues.map((issue) => READINESS_LABELS[issue] || issue).join(' · ')}</div>
+                          </div>
+                        ) : null}
+                        {item.claimed_by ? (
+                          <div>
+                            <div style={blockerLabelStyle}>Claim status</div>
+                            <div style={blockerValueStyle}>
+                              {[
+                                item.claimed_by ? `worker ${item.claimed_by}` : null,
+                                item.attempt_count ? `attempt ${item.attempt_count}` : null,
+                                item.claimed_at ? `claimed ${formatCompactDate(item.claimed_at)}` : null,
+                                item.started_at ? `started ${formatCompactDate(item.started_at)}` : null,
+                                item.heartbeat_at ? `heartbeat ${formatCompactDate(item.heartbeat_at)}` : null,
+                                item.completed_at ? `completed ${formatCompactDate(item.completed_at)}` : null,
+                              ].filter(Boolean).join(' · ')}
+                            </div>
+                          </div>
+                        ) : null}
+                        {item.last_error ? (
+                          <div>
+                            <div style={blockerLabelStyle}>Last error</div>
+                            <div style={blockerValueStyle}>{item.last_error}</div>
+                          </div>
+                        ) : null}
+                        {item.artifact_markdown?.trim() ? (
+                          <div>
+                            <div style={blockerLabelStyle}>Artifact</div>
+                            <pre style={artifactPreviewStyle}>{truncateText(item.artifact_markdown.trim(), 420)}</pre>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
                 {columnItems.length === 0 && (
@@ -393,6 +484,23 @@ function priorityColor(priority: string | null) {
   return 'var(--color-text-faint)'
 }
 
+function truncateId(value: string) {
+  return value.length > 12 ? `${value.slice(0, 8)}…` : value
+}
+
+function formatCompactDate(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return new Intl.DateTimeFormat('es-AR', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  }).format(date)
+}
+
+function truncateText(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, maxLength).trimEnd()}…` : value
+}
+
 const metaCardStyle: React.CSSProperties = {
   background: 'var(--color-surface-1)',
   border: '1px solid var(--color-border)',
@@ -413,6 +521,21 @@ const metaValueStyle: React.CSSProperties = {
   color: 'var(--color-text)',
   fontFamily: 'var(--font-heading)',
   fontSize: '1.1rem',
+}
+
+const blockerLabelStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: '9px',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--color-coral)',
+  marginBottom: '4px',
+}
+
+const blockerValueStyle: React.CSSProperties = {
+  color: 'var(--color-text)',
+  fontSize: '12px',
+  lineHeight: 1.5,
 }
 
 const artifactCardStyle: React.CSSProperties = {
@@ -437,6 +560,20 @@ const artifactBodyStyle: React.CSSProperties = {
   borderRadius: '8px',
   padding: '1rem',
   minHeight: '200px',
+}
+
+const artifactPreviewStyle: React.CSSProperties = {
+  margin: 0,
+  padding: '10px',
+  borderRadius: '8px',
+  border: '1px solid rgba(214, 255, 63, 0.16)',
+  background: 'rgba(214, 255, 63, 0.05)',
+  color: 'var(--color-text)',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  fontFamily: 'var(--font-body)',
+  fontSize: '12px',
+  lineHeight: 1.55,
 }
 
 const markdownPreStyle: React.CSSProperties = {
