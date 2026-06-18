@@ -61,7 +61,7 @@ export const COST_TIER_OPTIONS = [
   'C1',
 ] as const
 
-export const CODEX_MODEL_OPTIONS = ['gpt-5', 'gpt-5-mini', 'gpt-5-nano'] as const
+export const CODEX_MODEL_OPTIONS = ['gpt-5', 'gpt-5-mini'] as const
 
 const canonicalIndex: Record<string, number> = Object.fromEntries(
   CANONICAL_AGENT_ORDER.map((slug, index) => [slug, index])
@@ -108,7 +108,7 @@ export function getDefaultCodexModelForTier(costTier: string | null) {
     case 'C3':
     case 'C2':
     case 'C1':
-      return 'gpt-5-nano'
+      return 'gpt-5-mini'
     default:
       return null
   }

@@ -163,7 +163,7 @@ const DEFAULT_STALE_AFTER_MINUTES = 30
 const MAX_MC_SELECTIONS = 6
 const MAX_BACKLOG_SELECTIONS = 6
 const MAX_MARKDOWN_PREVIEW_LENGTH = 240
-const WORKER_NAME = process.env.MC_RUNTIME_DISPATCHER_NAME?.trim() || 'mc-runtime-dispatcher'
+const WORKER_NAME = process.env.MC_RUNTIME_DISPATCHER_NAME?.trim() || 'hermes'
 const execFileAsync = promisify(execFile)
 const HERMES_BIN_CANDIDATES = [process.env.HERMES_CLI_PATH, '/usr/local/lib/hermes-agent/venv/bin/hermes', 'hermes'].filter(Boolean) as string[]
 
@@ -1191,13 +1191,6 @@ async function finalizeProjectArtifactWorkItem(params: {
       generated_at: params.generatedAt,
     },
   })
-}
-
-async function executeMissionControlWorkItems() {
-  const claimedRows = await fetchMissionControlWorkItems(
-    (await claimNextMissionControlWorkItems(0)).selections.map((selection) => selection.id)
-  )
-  return claimedRows
 }
 
 async function runMissionControlRuntimeDispatcher() {
