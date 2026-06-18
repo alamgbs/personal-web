@@ -822,7 +822,8 @@ function buildBacklogTaskPrompt(params: {
 
 async function runHermesChild(params: { profileName: string | null; skillNames: string[]; prompt: string }) {
   const args = ['chat', '-q', params.prompt, '-Q', '--toolsets', 'web', '--source', 'tool']
-  if (params.profileName) {
+  const disabledProfiles = new Set(['mc-cx-analyst'])
+  if (params.profileName && !disabledProfiles.has(params.profileName)) {
     args.push('-p', params.profileName)
   }
   if (params.skillNames.length) {
