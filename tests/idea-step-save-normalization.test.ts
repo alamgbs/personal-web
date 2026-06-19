@@ -52,17 +52,17 @@ test('getIdeaStepAssignment resolves runtime profile and skill defaults for each
     name: 'CX Analyst',
     team: 'Marketing',
     profile: 'mc-cx-analyst',
-    skillName: 'mission-control-workflows',
-    skillNames: ['mission-control-workflows'],
+    skillName: 'wizard-step1-problem-validation',
+    skillNames: ['wizard-step1-problem-validation'],
   })
 
-  assert.deepEqual(getIdeaStepAssignment(9), {
+  assert.deepEqual(getIdeaStepAssignment(8), {
     slug: 'hermes',
     name: 'Hermes',
     team: 'Command',
     profile: 'mc-hermes',
-    skillName: 'mission-control-workflows',
-    skillNames: ['mission-control-workflows', 'hermes-agent'],
+    skillName: 'wizard-step9-go-no-go',
+    skillNames: ['wizard-step9-go-no-go'],
   })
 })
 
@@ -83,8 +83,8 @@ test('normalizeIdeaStepData backfills assigned profile and skill metadata from a
 
   assert.equal(result.assigned_agent_slug, 'cx-analyst')
   assert.equal(result.assigned_profile_name, 'mc-cx-analyst')
-  assert.equal(result.assigned_skill_name, 'mission-control-workflows')
-  assert.deepEqual(result.assigned_skill_names, ['mission-control-workflows'])
+  assert.equal(result.assigned_skill_name, 'wizard-step1-problem-validation')
+  assert.deepEqual(result.assigned_skill_names, ['wizard-step1-problem-validation'])
 })
 
 test('normalizeIdeaStepData upgrades legacy singular skill metadata into assigned_skill_names', () => {

@@ -13,9 +13,13 @@ import {
   MOAT_FIELDS,
   PROBLEM_DEFINITION_FIELDS,
   TAM_FIELDS,
-  TOTAL_IDEA_STEPS,
 } from '@/lib/mission-control/idea-steps'
-import { getFieldLabelMap, getMissingStructuredFields, normalizeGeneratedStepPayload } from '@/lib/mission-control/ideas'
+import {
+  getFieldLabelMap,
+  getIdeaStepAssignment,
+  getMissingStructuredFields,
+  normalizeGeneratedStepPayload,
+} from '@/lib/mission-control/ideas'
 import type { AgentRow } from '@/lib/mission-control/agents'
 
 const execFileAsync = promisify(execFile)
@@ -39,6 +43,7 @@ export async function generateIdeaStepWithHermes(params: {
   if (!stepDefinition) {
     throw new Error(`Invalid idea step index: ${params.idea.step}`)
   }
+  const assignment = getIdeaStepAssignment(params.idea.step)
 
   const priorContext = Object.entries(params.idea.stepData)
     .filter(([key]) => Number(key) < params.idea.step)
@@ -61,50 +66,36 @@ export async function generateIdeaStepWithHermes(params: {
 
   for (let attempt = 1; attempt <= MAX_GENERATION_ATTEMPTS; attempt += 1) {
     const prompt = [
-      `Eres ${params.agent.name} dentro de Mission Control.`,
-      `Tu rol: ${params.agent.role}.`,
-      params.agent.team ? `Equipo: ${params.agent.team}.` : null,
-      params.agent.soul_short ? `Soul: ${params.agent.soul_short}` : null,
-      params.agent.skills?.length ? `Skills: ${params.agent.skills.join(', ')}.` : null,
-      params.agent.responsibilities?.length ? `Responsabilidades: ${params.agent.responsibilities.join(', ')}.` : null,
+      'Ejecuta la skill cargada para el paso actual del wizard de ideas de Mission Control.',
+      'No repitas identidad, rol, soul ni skills del agente; ya están definidos por el perfil Hermes activo.',
+      'Devuelve únicamente el JSON final requerido por la skill.',
       '',
-      'Objetivo:',
-      `Genera el análisis del paso ${params.idea.step + 1}/${TOTAL_IDEA_STEPS} para la idea de negocio "${params.idea.title}".`,
-      params.idea.summary ? `Resumen de la idea: ${params.idea.summary}` : 'Resumen de la idea: no provisto.',
-      '',
-      `Paso actual: ${stepDefinition.label}`,
-      `Hint: ${stepDefinition.hint}`,
-      'Marco metodológico: usa un nivel de profundidad tipo Moonshot/ITTI (KAPI 2026): respuestas específicas, estructuradas, cuantificadas y listas para discusión ejecutiva.',
-      stepDefinition.questions.length
-        ? `Preguntas guía:\n${stepDefinition.questions.map((question, index) => `${index + 1}. ${question}`).join('\n')}`
-        : 'Preguntas guía: usa criterio experto para completar este paso con suficiente sustancia para aprobación ejecutiva.',
-      '',
-      priorContext ? `Contexto ya resuelto:\n${priorContext}` : 'Contexto ya resuelto: este es el primer paso.',
-      currentDraft ? `Borrador actual del paso a revisar:\n${currentDraft}` : 'Borrador actual del paso: no existe uno previo o debe generarse desde cero.',
-      pendingFeedback
-        ? `Feedback explícito del usuario para este paso (debes incorporarlo de forma prioritaria):\n${pendingFeedback}`
-        : 'Feedback explícito del usuario para este paso: no provisto.',
-      previousAttemptNote || null,
-      '',
-      'Reglas obligatorias:',
-      '- Responde solo en español.',
-      '- No hables de ti mismo ni menciones que eres una IA.',
-      '- Usa TODOS los campos dedicados del paso cuando existan; no concentres la respuesta en un solo bloque de texto.',
-      '- Si existe feedback explícito del usuario para este paso, úsalo como instrucción prioritaria para corregir y rehacer el draft.',
-      '- Si un campo requiere números o supuestos, complétalos con estimaciones razonables y explícitas.',
-      '- Mantén cada campo conciso: idealmente 3-4 bullets o un párrafo corto; evita bloques largos.',
-      '- Devuelve ÚNICAMENTE un objeto JSON válido. Sin markdown, sin fences, sin texto extra antes o después.',
-      '- El JSON debe incluir siempre la clave "content" con una síntesis ejecutiva breve del paso.',
-      '- Todas las demás claves del JSON deben coincidir exactamente con el esquema provisto.',
-      stepSpecificGuidance,
-      '',
-      'Esquema JSON obligatorio:',
-      schema,
-    ]
-      .filter(Boolean)
-      .join('\n')
+      'Input:',
+      JSON.stringify(
+        {
+          idea_title: params.idea.title,
+          idea_summary: params.idea.summary || null,
+          step: params.idea.step,
+          step_label: stepDefinition.label,
+          step_hint: stepDefinition.hint,
+          guide_questions: stepDefinition.questions,
+          prior_context: priorContext || null,
+          current_draft: currentDraft || null,
+          pending_feedback: pendingFeedback || null,
+          previous_attempt_note: previousAttemptNote || null,
+          required_schema: JSON.parse(schema),
+          step_specific_guidance: stepSpecificGuidance,
+        },
+        null,
+        2
+      ),
+    ].join('\n')
 
-    const args = [
+    const args = [] as string[]
+    if (assignment.profile) {
+      args.push('-p', assignment.profile)
+    }
+    args.push(
       'chat',
       '-q',
       prompt,
@@ -112,11 +103,12 @@ export async function generateIdeaStepWithHermes(params: {
       '--toolsets',
       'web',
       '--ignore-rules',
-      '--skills',
-      'mission-control-workflows,mission-control-agent-design',
       '--source',
-      'tool',
-    ]
+      'tool'
+    )
+    if (assignment.skillNames.length) {
+      args.push('--skills', assignment.skillNames.join(','))
+    }
 
     const { stdout, stderr } = await execFileAsync(resolveHermesBinary(), args, {
       cwd: process.cwd(),

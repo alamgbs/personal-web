@@ -8,8 +8,14 @@ import {
   type DependencyRow,
 } from '@/lib/mission-control/backlog-runtime-core'
 import { IDEA_STEPS } from '@/lib/mission-control/idea-steps'
-import { getIdeaStepAssignment } from '@/lib/mission-control/ideas'
+import {
+  getFieldLabelMap,
+  getIdeaStepAssignment,
+  getMissingStructuredFields,
+  normalizeGeneratedStepPayload,
+} from '@/lib/mission-control/ideas'
 import { getRuntimeProfile } from '@/lib/mission-control/agents'
+import { isIdeaReadyForReview } from '@/lib/mission-control/workflow'
 
 type MissionControlWorkItemStatus = 'queued' | 'claimed' | 'running' | 'completed' | 'needs_feedback' | 'failed' | 'cancelled'
 type BacklogExecutableStatus = 'backlog' | 'claimed' | 'running' | 'in_progress' | 'done' | 'review' | 'failed' | 'blocked'
@@ -160,10 +166,11 @@ type DispatcherReport = {
 }
 
 const DEFAULT_STALE_AFTER_MINUTES = 30
-const MAX_MC_SELECTIONS = 6
-const MAX_BACKLOG_SELECTIONS = 6
+const DEFAULT_MAX_MC_SELECTIONS = 6
+const DEFAULT_MAX_BACKLOG_SELECTIONS = 6
 const MAX_MARKDOWN_PREVIEW_LENGTH = 240
-const WORKER_NAME = process.env.MC_RUNTIME_DISPATCHER_NAME?.trim() || 'hermes'
+const WORKER_NAME = process.env.MC_RUNTIME_CLAIMED_BY?.trim() || 'hermes'
+const REPORT_WORKER_NAME = process.env.MC_RUNTIME_DISPATCHER_NAME?.trim() || WORKER_NAME
 const execFileAsync = promisify(execFile)
 const HERMES_BIN_CANDIDATES = [process.env.HERMES_CLI_PATH, '/usr/local/lib/hermes-agent/venv/bin/hermes', 'hermes'].filter(Boolean) as string[]
 
@@ -175,6 +182,12 @@ function parsePositiveInt(value: string | undefined, fallback: number) {
   if (!value) return fallback
   const parsed = Number.parseInt(value, 10)
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function parseNonNegativeInt(value: string | undefined, fallback: number) {
+  if (!value) return fallback
+  const parsed = Number.parseInt(value, 10)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
 }
 
 function buildStaleCutoffIso(minutes: number) {
@@ -221,6 +234,36 @@ function extractHermesContent(stdout: string) {
     .filter((line) => line.trim() && !line.startsWith('session_id:'))
     .join('\n')
     .trim()
+}
+
+function extractJsonObject(text: string) {
+  const fenced = text.match(/```json\s*([\s\S]*?)```/i) || text.match(/```\s*([\s\S]*?)```/)
+  if (fenced?.[1]?.trim()) return fenced[1].trim()
+
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start === -1 || end === -1 || end <= start) return null
+  return text.slice(start, end + 1)
+}
+
+function parseHermesJson(content: string) {
+  const candidate = extractJsonObject(content)
+  if (!candidate) {
+    throw new Error('Hermes no devolvió un JSON parseable para este paso de idea.')
+  }
+
+  try {
+    return JSON.parse(candidate) as Record<string, unknown>
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : 'JSON inválido devuelto por Hermes.')
+  }
+}
+
+function buildIdeaStepRequiredSchema(step: number) {
+  return {
+    content: 'Síntesis ejecutiva breve del paso.',
+    ...getFieldLabelMap(step),
+  }
 }
 
 function getProjectArtifactLabel(artifact: ProjectArtifactKind) {
@@ -328,6 +371,47 @@ async function claimNextMissionControlWorkItems(limit: number): Promise<Candidat
   }
 
   return { selections, candidatesConsidered }
+}
+
+async function claimSpecificMissionControlWorkItem(workItemId: string): Promise<CandidateSelection> {
+  const supabase = createAdminClient()
+  const claimedAt = nowIso()
+  const { data, error } = await supabase
+    .from('mission_control_work_items')
+    .update({
+      status: 'claimed',
+      claimed_by: WORKER_NAME,
+      claimed_at: claimedAt,
+      heartbeat_at: claimedAt,
+      attempt_count: 1,
+      last_error: null,
+      updated_at: claimedAt,
+    })
+    .eq('id', workItemId)
+    .eq('status', 'queued')
+    .select('id, source_type, source_step_index, idempotency_key, assignee_slug, profile_name, priority')
+    .single()
+
+  if (error || !data) {
+    throw new Error(error?.message || `No queued mission_control_work_item found for ${workItemId}`)
+  }
+
+  const row = data as MissionControlWorkItemRow
+  return {
+    selections: [
+      {
+        kind: 'mission_control_work_item',
+        id: row.id,
+        title: row.idempotency_key,
+        assignee_slug: row.assignee_slug,
+        profile_name: row.profile_name,
+        priority: row.priority,
+        stage: row.source_step_index == null ? null : String(row.source_step_index),
+        source_type: row.source_type,
+      },
+    ],
+    candidatesConsidered: 1,
+  }
 }
 
 async function reclaimStaleBacklogItems(staleAfterMinutes: number) {
@@ -712,7 +796,6 @@ function buildProjectArtifactPrompt(params: {
 }
 
 function buildIdeaStepPrompt(params: {
-  agent: AgentRow
   idea: IdeaRow
   step: number
   inputJson: Record<string, unknown>
@@ -741,39 +824,32 @@ function buildIdeaStepPrompt(params: {
       : ''
 
   return [
-    `Eres ${params.agent.name || params.agent.slug} dentro de Mission Control.`,
-    params.agent.role ? `Tu rol: ${params.agent.role}.` : null,
-    params.agent.team ? `Equipo: ${params.agent.team}.` : null,
-    params.agent.soul_short ? `Soul: ${params.agent.soul_short}` : null,
-    params.agent.skills?.length ? `Skills: ${params.agent.skills.join(', ')}.` : null,
-    params.agent.responsibilities?.length ? `Responsabilidades: ${params.agent.responsibilities.join(', ')}.` : null,
+    'Ejecuta la skill cargada para el paso actual del wizard de ideas de Mission Control.',
+    'No repitas identidad, rol, soul ni skills del agente; ya están definidos por el perfil Hermes activo.',
+    'Devuelve únicamente el JSON final requerido por la skill.',
     '',
-    'Objetivo:',
-    `Genera el análisis del paso ${params.step + 1}/${IDEA_STEPS.length} para la idea de negocio "${params.idea.title}".`,
-    params.idea.summary ? `Resumen de la idea: ${params.idea.summary}` : 'Resumen de la idea: no provisto.',
-    '',
-    `Paso actual: ${stepDefinition?.label || `Paso ${params.step + 1}`}`,
-    stepDefinition?.hint ? `Hint: ${stepDefinition.hint}` : null,
-    stepDefinition?.questions?.length
-      ? `Preguntas guía:\n${stepDefinition.questions.map((question: string, index: number) => `${index + 1}. ${question}`).join('\n')}`
-      : null,
-    `Agente asignado esperado: ${assignment.name} (${assignment.slug}).`,
-    priorContext ? `Contexto ya resuelto:\n${priorContext}` : 'Contexto ya resuelto: este es el primer paso.',
-    currentDraft ? `Borrador actual del paso a revisar:\n${currentDraft}` : 'Borrador actual del paso: no existe uno previo o debe generarse desde cero.',
-    pendingFeedback
-      ? `Feedback explícito del usuario para este paso (debes incorporarlo de forma prioritaria):\n${pendingFeedback}`
-      : 'Feedback explícito del usuario para este paso: no provisto.',
-    '',
-    'Reglas obligatorias:',
-    '- Responde solo en español.',
-    '- No hables de ti mismo ni menciones que eres una IA.',
-    '- Devuelve markdown ejecutivo, claro y accionable.',
-    '- Usa subtítulos y bullets.',
-    '- Si existe feedback explícito del usuario para este paso, úsalo como instrucción prioritaria para corregir y rehacer el draft.',
-    '- Debe quedar listo para revisión de producto, no como borrador vacío.',
-  ]
-    .filter(Boolean)
-    .join('\n')
+    'Input:',
+    JSON.stringify(
+      {
+        idea_id: params.idea.id,
+        idea_title: params.idea.title,
+        idea_summary: params.idea.summary || null,
+        step: params.step,
+        step_label: stepDefinition?.label || `Paso ${params.step + 1}`,
+        step_hint: stepDefinition?.hint || null,
+        guide_questions: stepDefinition?.questions || [],
+        assigned_agent_slug: assignment.slug,
+        assigned_profile_name: assignment.profile,
+        assigned_skill_names: assignment.skillNames,
+        prior_context: priorContext || null,
+        current_draft: currentDraft || null,
+        pending_feedback: pendingFeedback || null,
+        required_schema: buildIdeaStepRequiredSchema(params.step),
+      },
+      null,
+      2
+    ),
+  ].join('\n')
 }
 
 function buildBacklogTaskPrompt(params: {
@@ -821,11 +897,11 @@ function buildBacklogTaskPrompt(params: {
 }
 
 async function runHermesChild(params: { profileName: string | null; skillNames: string[]; prompt: string }) {
-  const args = ['chat', '-q', params.prompt, '-Q', '--toolsets', 'web', '--source', 'tool']
-  const disabledProfiles = new Set(['mc-cx-analyst'])
-  if (params.profileName && !disabledProfiles.has(params.profileName)) {
+  const args = [] as string[]
+  if (params.profileName) {
     args.push('-p', params.profileName)
   }
+  args.push('chat', '-q', params.prompt, '-Q', '--toolsets', 'web', '--source', 'tool')
   if (params.skillNames.length) {
     args.push('--skills', params.skillNames.join(','))
   }
@@ -890,6 +966,7 @@ async function finalizeIdeaStepWorkItem(params: {
   idea: IdeaRow
   agent: AgentRow
   markdown: string
+  stepPayload: Record<string, string>
   step: number
   generatedAt: string
 }) {
@@ -901,10 +978,11 @@ async function finalizeIdeaStepWorkItem(params: {
     ...existingStepData,
     [stepKey]: {
       ...currentStepData,
-      content: params.markdown,
+      ...params.stepPayload,
       assigned_agent_slug: params.workItem.assignee_slug,
       assigned_agent_name: params.agent.name || params.workItem.assignee_slug,
       assigned_profile_name: params.workItem.profile_name,
+      assigned_skill_name: params.workItem.skill_names?.[0] || null,
       assigned_skill_names: params.workItem.skill_names || [],
       generated_at: params.generatedAt,
       generated_by: params.agent.slug,
@@ -913,6 +991,7 @@ async function finalizeIdeaStepWorkItem(params: {
       generation_model: params.agent.llm_model || 'default',
     },
   }
+  const readyForReview = isIdeaReadyForReview(updatedStepData)
 
   const automationRunCount = (params.idea.automation_run_count || 0) + 1
 
@@ -921,10 +1000,10 @@ async function finalizeIdeaStepWorkItem(params: {
     .update({
       step_data: updatedStepData,
       current_step: params.step,
-      workflow_stage: 'idea_review',
+      workflow_stage: readyForReview ? 'idea_review' : 'idea_pipeline',
       automation_status: 'needs_feedback',
       automation_completed_at: params.generatedAt,
-      review_requested_at: params.generatedAt,
+      review_requested_at: readyForReview ? params.generatedAt : null,
       last_automation_error: null,
       automation_run_count: automationRunCount,
     })
@@ -940,7 +1019,8 @@ async function finalizeIdeaStepWorkItem(params: {
     outputMarkdown: params.markdown,
     outputJson: {
       step: params.step,
-      workflow_stage: 'idea_review',
+      step_payload: params.stepPayload,
+      workflow_stage: readyForReview ? 'idea_review' : 'idea_pipeline',
       automation_status: 'needs_feedback',
       generated_at: params.generatedAt,
       assignee_slug: params.workItem.assignee_slug,
@@ -1196,6 +1276,9 @@ async function finalizeProjectArtifactWorkItem(params: {
 
 async function runMissionControlRuntimeDispatcher() {
   const staleAfterMinutes = parsePositiveInt(process.env.MC_RUNTIME_STALE_AFTER_MINUTES, DEFAULT_STALE_AFTER_MINUTES)
+  const maxMissionControlSelections = parseNonNegativeInt(process.env.MC_RUNTIME_MAX_MC_SELECTIONS, DEFAULT_MAX_MC_SELECTIONS)
+  const maxBacklogSelections = parseNonNegativeInt(process.env.MC_RUNTIME_MAX_BACKLOG_SELECTIONS, DEFAULT_MAX_BACKLOG_SELECTIONS)
+  const targetWorkItemId = process.env.MC_RUNTIME_TARGET_WORK_ITEM_ID?.trim() || null
   const startedAt = nowIso()
 
   const missionControlReclaims = await reclaimStaleMissionControlWorkItems(staleAfterMinutes)
@@ -1203,8 +1286,12 @@ async function runMissionControlRuntimeDispatcher() {
   const {
     selections: missionControlSelections,
     candidatesConsidered: missionControlCandidatesConsidered,
-  } = await claimNextMissionControlWorkItems(MAX_MC_SELECTIONS)
-  const { selections: backlogSelections, considered: backlogCandidatesConsidered } = await claimBacklogItems(MAX_BACKLOG_SELECTIONS)
+  } = targetWorkItemId
+    ? await claimSpecificMissionControlWorkItem(targetWorkItemId)
+    : await claimNextMissionControlWorkItems(maxMissionControlSelections)
+  const { selections: backlogSelections, considered: backlogCandidatesConsidered } = targetWorkItemId
+    ? { selections: [] as SelectionRecord[], considered: 0 }
+    : await claimBacklogItems(maxBacklogSelections)
 
   const missionControlItems = await fetchMissionControlWorkItems(missionControlSelections.map((selection) => selection.id))
   const agentMap = await fetchAgentsBySlugs(missionControlItems.map((item) => item.assignee_slug))
@@ -1245,18 +1332,30 @@ async function runMissionControlRuntimeDispatcher() {
         if (!idea) throw new Error(`Missing business idea ${item.source_id} for work item ${item.id}`)
         const step = item.source_step_index ?? recordNumber(item.input_json || {}, 'step') ?? idea.current_step ?? 0
         const prompt = buildIdeaStepPrompt({
-          agent,
           idea,
           step,
           inputJson: item.input_json || {},
         })
         const run = await runHermesChild({ profileName, skillNames, prompt })
+        const rawStepPayload = parseHermesJson(run.content)
+        const stepPayload = normalizeGeneratedStepPayload(step, rawStepPayload)
+        const missingFields = getMissingStructuredFields(step, stepPayload)
+        if (missingFields.length) {
+          const labels = getFieldLabelMap(step)
+          throw new Error(
+            `El agente devolvió un payload incompleto. Faltan campos obligatorios: ${missingFields
+              .map((field) => labels[field] || field)
+              .join(', ')}`
+          )
+        }
+        const markdown = stepPayload.content || run.content
         const generatedAt = nowIso()
         await finalizeIdeaStepWorkItem({
           workItem: item,
           idea,
           agent,
-          markdown: run.content,
+          markdown,
+          stepPayload,
           step,
           generatedAt,
         })
@@ -1266,7 +1365,7 @@ async function runMissionControlRuntimeDispatcher() {
           final_status: 'needs_feedback',
           profile_name: profileName,
           skill_names: skillNames,
-          artifact_preview: truncate(run.content),
+          artifact_preview: truncate(markdown),
           error: null,
         })
         continue
@@ -1360,7 +1459,7 @@ async function runMissionControlRuntimeDispatcher() {
   }
 
   const report: DispatcherReport = {
-    worker_name: WORKER_NAME,
+    worker_name: REPORT_WORKER_NAME,
     started_at: startedAt,
     stale_after_minutes: staleAfterMinutes,
     noop: missionControlSelections.length === 0 && backlogSelections.length === 0,

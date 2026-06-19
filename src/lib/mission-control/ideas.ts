@@ -23,7 +23,6 @@ export const IDEA_STEP_ASSIGNMENTS = [
   { slug: 'finance-analyst', name: 'Finance Analyst', team: 'Product' },
   { slug: 'finance-analyst', name: 'Finance Analyst', team: 'Product' },
   { slug: 'research', name: 'Research', team: 'Product' },
-  { slug: 'research', name: 'Research', team: 'Product' },
   { slug: 'hermes', name: 'Hermes', team: 'Command' },
 ] as const
 
@@ -35,13 +34,17 @@ const DEFAULT_PROFILE_BY_SLUG: Record<string, string> = {
   'cx-analyst': 'mc-cx-analyst',
 }
 
-const DEFAULT_SKILLS_BY_SLUG: Record<string, readonly string[]> = {
-  hermes: ['mission-control-workflows', 'hermes-agent'],
-  'product-lead': ['mission-control-workflows'],
-  research: ['mission-control-workflows'],
-  'finance-analyst': ['mission-control-workflows'],
-  'cx-analyst': ['mission-control-workflows'],
-}
+const DEFAULT_SKILLS_BY_STEP: readonly string[][] = [
+  ['wizard-step1-problem-validation'],
+  ['wizard-step2-customer-archetype'],
+  ['wizard-step3-customer-journey'],
+  ['wizard-step4-business-model-canvas'],
+  ['wizard-step5-market-sizing'],
+  ['wizard-step6-pnl-unit-economics'],
+  ['wizard-step7-cashflow'],
+  ['wizard-step8-moat-analysis'],
+  ['wizard-step9-go-no-go'],
+]
 
 export type IdeaStepAssignment = (typeof IDEA_STEP_ASSIGNMENTS)[number] & {
   profile: string | null
@@ -64,8 +67,9 @@ const META_KEYS = new Set([
 ])
 
 export function getIdeaStepAssignment(step: number): IdeaStepAssignment {
-  const assignment = IDEA_STEP_ASSIGNMENTS[step] || IDEA_STEP_ASSIGNMENTS[0]
-  const skillNames = [...(DEFAULT_SKILLS_BY_SLUG[assignment.slug] || ['mission-control-workflows'])]
+  const fallbackIndex = IDEA_STEP_ASSIGNMENTS.length - 1
+  const assignment = IDEA_STEP_ASSIGNMENTS[step] || IDEA_STEP_ASSIGNMENTS[fallbackIndex]
+  const skillNames = [...(DEFAULT_SKILLS_BY_STEP[step] || DEFAULT_SKILLS_BY_STEP[fallbackIndex] || ['mission-control-workflows'])]
 
   return {
     ...assignment,
