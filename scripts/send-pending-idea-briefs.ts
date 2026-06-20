@@ -35,8 +35,21 @@ function readLimit() {
 }
 
 function hasSentDailyBrief(stepData: Record<string, unknown>) {
-  const finalStep = (stepData[FINAL_IDEA_STEP_INDEX.toString()] || {}) as Record<string, unknown>
-  return typeof finalStep.final_brief_daily_brief_sent_at === 'string' && finalStep.final_brief_daily_brief_sent_at.trim().length > 0
+  const candidateSteps = [
+    stepData[FINAL_IDEA_STEP_INDEX.toString()],
+    stepData['9'],
+    stepData['8'],
+    ...Object.values(stepData),
+  ]
+
+  return candidateSteps.some((raw) => {
+    if (!raw || typeof raw !== 'object') return false
+    const finalStep = raw as Record<string, unknown>
+    return (
+      typeof finalStep.final_brief_daily_brief_sent_at === 'string' &&
+      finalStep.final_brief_daily_brief_sent_at.trim().length > 0
+    )
+  })
 }
 
 async function deliverToDiscord(params: { message: string; pdf: Uint8Array; filename: string }): Promise<DeliveryResult> {
@@ -111,13 +124,14 @@ async function main() {
   const candidates = ((data || []) as BusinessIdeaRow[])
     .map((idea) => ({
       idea,
+      rawHasSent: hasSentDailyBrief(idea.step_data || {}),
       migrated: migrateIdeaRecordShape({
         current_step: idea.current_step,
         step_data: idea.step_data,
         step_approvals: idea.step_approvals,
       }),
     }))
-    .filter(({ migrated }) => !hasSentDailyBrief(migrated.step_data || {}))
+    .filter(({ rawHasSent, migrated }) => !rawHasSent && !hasSentDailyBrief(migrated.step_data || {}))
     .slice(0, limit)
 
   console.log(`${write ? 'Sending' : 'Dry run:'} ${candidates.length} pending final idea brief PDF(s).`)
