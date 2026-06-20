@@ -19,15 +19,18 @@ export type IdeaBriefDeliveryResult = {
 
 export async function sendIdeaFinalBriefToDailyBrief(input: IdeaBriefInput): Promise<IdeaBriefDeliveryResult> {
   const webhookUrl = process.env.DISCORD_DAILY_BRIEF_WEBHOOK_URL?.trim()
+  const botToken = process.env.DISCORD_BOT_TOKEN?.trim()
+  const channelId = process.env.DISCORD_DAILY_BRIEF_CHANNEL_ID?.trim()
   const report = buildIdeaBriefReport(input)
   const filename = buildIdeaBriefFilename(input)
 
-  if (!webhookUrl) {
+  if (!webhookUrl && (!botToken || !channelId)) {
     return {
       ok: false,
       skipped: true,
       filename,
-      error: 'Falta configurar DISCORD_DAILY_BRIEF_WEBHOOK_URL para enviar el PDF al canal daily-brief.',
+      error:
+        'Falta configurar DISCORD_DAILY_BRIEF_WEBHOOK_URL o DISCORD_BOT_TOKEN + DISCORD_DAILY_BRIEF_CHANNEL_ID para enviar el PDF al canal daily-brief.',
     }
   }
 
@@ -42,10 +45,18 @@ export async function sendIdeaFinalBriefToDailyBrief(input: IdeaBriefInput): Pro
   )
   form.append('files[0]', new Blob([new Uint8Array(pdf)], { type: 'application/pdf' }), filename)
 
-  const response = await fetch(webhookUrl, {
-    method: 'POST',
-    body: form,
-  })
+  const response = webhookUrl
+    ? await fetch(webhookUrl, {
+        method: 'POST',
+        body: form,
+      })
+    : await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bot ${botToken}`,
+        },
+        body: form,
+      })
 
   if (!response.ok) {
     const body = await response.text().catch(() => '')
