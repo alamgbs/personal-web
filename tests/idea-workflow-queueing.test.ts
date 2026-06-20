@@ -1,9 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { TOTAL_IDEA_STEPS } from '../src/lib/mission-control/idea-steps'
+import { CUSTOMER_ARCHETYPE_FIELDS, PROBLEM_DEFINITION_FIELDS, TOTAL_IDEA_STEPS } from '../src/lib/mission-control/idea-steps'
 import {
+  canQueueAutomatedIdeaStep,
   canQueueIdeaStep,
+  getNextIncompleteIdeaStep,
   getNextPendingIdeaStep,
   isIdeaStepApproved,
 } from '../src/lib/mission-control/workflow'
@@ -47,4 +49,34 @@ test('isIdeaStepApproved reads approval presence by step index', () => {
 
   assert.equal(isIdeaStepApproved(approvals, 2), true)
   assert.equal(isIdeaStepApproved(approvals, 1), false)
+})
+
+test('automated idea progression advances to the first incomplete step without requiring intermediate approvals', () => {
+  const completedProblemStep = Object.fromEntries(
+    PROBLEM_DEFINITION_FIELDS.map((field) => [field.key, `Completo: ${field.label}`])
+  )
+  const completedArchetypeStep = Object.fromEntries(
+    CUSTOMER_ARCHETYPE_FIELDS.map((field) => [field.key, `Completo: ${field.label}`])
+  )
+  const stepData = {
+    '0': completedProblemStep,
+    '1': completedArchetypeStep,
+  }
+
+  assert.equal(getNextIncompleteIdeaStep(stepData), 2)
+  assert.equal(canQueueAutomatedIdeaStep(stepData, 2), true)
+  assert.equal(canQueueIdeaStep({}, 2), false)
+})
+
+test('automated idea progression blocks only when the previous step has no completed draft', () => {
+  const completedProblemStep = Object.fromEntries(
+    PROBLEM_DEFINITION_FIELDS.map((field) => [field.key, `Completo: ${field.label}`])
+  )
+  const stepData = {
+    '0': completedProblemStep,
+  }
+
+  assert.equal(canQueueAutomatedIdeaStep(stepData, 0), true)
+  assert.equal(canQueueAutomatedIdeaStep(stepData, 1), true)
+  assert.equal(canQueueAutomatedIdeaStep(stepData, 2), false)
 })

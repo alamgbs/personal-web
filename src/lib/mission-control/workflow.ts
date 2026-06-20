@@ -151,6 +151,30 @@ export function canQueueIdeaStep(stepApprovals: Record<string, unknown> | null |
   return isIdeaStepApproved(stepApprovals, step - 1)
 }
 
+export function canQueueAutomatedIdeaStep(stepData: Record<string, unknown> | null | undefined, step: number) {
+  if (step < 0 || step >= TOTAL_IDEA_STEPS) {
+    return false
+  }
+
+  if (step === 0) {
+    return true
+  }
+
+  const previousStep = (stepData || {})[(step - 1).toString()] as Record<string, unknown> | undefined
+  return isIdeaStepComplete(step - 1, previousStep)
+}
+
+export function getNextIncompleteIdeaStep(stepData: Record<string, unknown> | null | undefined) {
+  for (let step = 0; step < TOTAL_IDEA_STEPS; step += 1) {
+    const record = (stepData || {})[step.toString()] as Record<string, unknown> | undefined
+    if (!isIdeaStepComplete(step, record)) {
+      return step
+    }
+  }
+
+  return null
+}
+
 export function getNextPendingIdeaStep(stepApprovals: Record<string, unknown> | null | undefined) {
   for (let step = 0; step < TOTAL_IDEA_STEPS; step += 1) {
     if (!isIdeaStepApproved(stepApprovals, step)) {

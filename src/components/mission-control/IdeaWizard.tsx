@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   approveStep,
   deleteBusinessIdea,
@@ -30,7 +30,7 @@ import {
   TAM_FIELDS,
   TOTAL_IDEA_STEPS,
 } from '@/lib/mission-control/idea-steps'
-import { getIdeaStepAssignment, normalizeIdeaStepData } from '@/lib/mission-control/ideas'
+import { getIdeaStepAssignment, isIdeaStepComplete, normalizeIdeaStepData } from '@/lib/mission-control/ideas'
 import {
   getAutomationStatusLabel,
   getAutomationTone,
@@ -77,14 +77,12 @@ type StepRuntimeSnapshot = {
 const STEPS = IDEA_STEPS
 
 function StepContent({
-  step,
   stepDef,
   savedData,
   onSave,
   saving,
   formRef,
 }: {
-  step: number
   stepDef: typeof STEPS[number]
   savedData: Record<string, unknown> | null
   onSave: (data: Record<string, unknown>) => void
@@ -839,7 +837,7 @@ export function IdeaWizard({ idea }: Props) {
   const currentStepMeta = (currentStepData || {}) as Record<string, unknown>
   const currentRuntime = runtimeByStep[activeStep.toString()] || null
 
-  async function refreshRuntimeSnapshot() {
+  const refreshRuntimeSnapshot = useCallback(async () => {
     setLoadingRuntime(true)
     setRuntimeError(null)
     const result = await getIdeaStepRuntimeSnapshot(idea.id)
@@ -851,11 +849,15 @@ export function IdeaWizard({ idea }: Props) {
     }
 
     setRuntimeByStep(((result?.runtimeByStep as Record<string, StepRuntimeSnapshot> | undefined) || {}))
-  }
+  }, [idea.id])
 
   useEffect(() => {
-    void refreshRuntimeSnapshot()
-  }, [idea.id])
+    const timeout = window.setTimeout(() => {
+      void refreshRuntimeSnapshot()
+    }, 0)
+
+    return () => window.clearTimeout(timeout)
+  }, [refreshRuntimeSnapshot])
 
   async function handleSave(data: Record<string, unknown>) {
     setSaving(true)
@@ -954,7 +956,11 @@ export function IdeaWizard({ idea }: Props) {
   }
 
   const isStepApproved = (step: number) => !!stepApprovals[step.toString()]
-  const isStepLocked = (step: number) => step > 0 && !isStepApproved(step - 1)
+  const isStepComplete = (step: number) => {
+    const record = stepData[step.toString()] as Record<string, unknown> | undefined
+    return isIdeaStepComplete(step, record)
+  }
+  const isStepLocked = (step: number) => step > 0 && !isStepComplete(step - 1)
 
   const status = idea.status || 'draft'
   const workflowTone = getWorkflowTone(idea.workflow_stage)
@@ -1038,6 +1044,7 @@ export function IdeaWizard({ idea }: Props) {
         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
           {STEPS.map((s, i) => {
             const approved = isStepApproved(i)
+            const completed = isStepComplete(i)
             const isActive = i === activeStep
             const locked = isStepLocked(i)
             return (
@@ -1054,6 +1061,8 @@ export function IdeaWizard({ idea }: Props) {
                   cursor: locked ? 'not-allowed' : 'pointer',
                   background: approved
                     ? 'var(--color-acid)'
+                    : completed
+                    ? 'rgba(214,255,63,0.65)'
                     : isActive
                     ? 'rgba(214,255,63,0.4)'
                     : locked
@@ -1218,11 +1227,10 @@ export function IdeaWizard({ idea }: Props) {
             borderRadius: '8px',
           }}>
             🔒 Este paso está bloqueado.<br />
-            Aprueba el paso {activeStep - 1} para desbloquearlo.
+            Completa el paso {activeStep} para desbloquearlo.
           </div>
         ) : (
           <StepContent
-            step={activeStep}
             stepDef={STEPS[activeStep]}
             savedData={currentStepData || null}
             onSave={handleSave}
@@ -1297,17 +1305,17 @@ export function IdeaWizard({ idea }: Props) {
             </button>
           )}
 
-          {!isStepApproved(activeStep) && !isStepLocked(activeStep) && (
+          {activeStep === FINAL_IDEA_STEP_INDEX && !isStepApproved(activeStep) && !isStepLocked(activeStep) && (
             <button
               onClick={handleApprove}
               disabled={approving}
               style={approveStyle}
             >
-              {approving ? 'Aprobando...' : activeStep === FINAL_IDEA_STEP_INDEX ? '✓ Aprobar Go/No-Go' : '✓ Aprobar y continuar →'}
+              {approving ? 'Aprobando...' : '✓ Aprobar Go/No-Go'}
             </button>
           )}
 
-          {isStepApproved(activeStep) && activeStep < FINAL_IDEA_STEP_INDEX && (
+          {isStepComplete(activeStep) && activeStep < FINAL_IDEA_STEP_INDEX && (
             <button
               onClick={() => setActiveStep((s) => Math.min(FINAL_IDEA_STEP_INDEX, s + 1))}
               style={nextStyle}

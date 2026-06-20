@@ -10,7 +10,11 @@ import {
   normalizeIdeaStepPayloadForSave,
 } from '@/lib/mission-control/ideas'
 import { generateProjectPrd, queueIdeaPipelineAutomation } from '@/lib/mission-control/automation'
-import { canQueueIdeaStep, getNextPendingIdeaStep, isIdeaReadyForReview } from '@/lib/mission-control/workflow'
+import {
+  canQueueAutomatedIdeaStep,
+  getNextIncompleteIdeaStep,
+  isIdeaReadyForReview,
+} from '@/lib/mission-control/workflow'
 
 export async function createQuickIdea(formData: FormData) {
   const supabase = await createClient()
@@ -161,7 +165,7 @@ export async function generateIdeaStepDraft(ideaId: string, step: number, data?:
 
   const { data: idea, error: fetchError } = await supabase
     .from('business_ideas')
-    .select('step_approvals')
+    .select('step_data')
     .eq('id', ideaId)
     .single()
 
@@ -169,9 +173,9 @@ export async function generateIdeaStepDraft(ideaId: string, step: number, data?:
     return { error: fetchError.message }
   }
 
-  const approvals = (idea?.step_approvals as Record<string, unknown>) || {}
-  if (step > 0 && !approvals[(step - 1).toString()]) {
-    return { error: `No se puede generar el paso ${step + 1} antes de aprobar el paso ${step}.` }
+  const stepData = (idea?.step_data as Record<string, unknown>) || {}
+  if (!canQueueAutomatedIdeaStep(stepData, step)) {
+    return { error: `No se puede generar el paso ${step + 1} antes de completar el paso ${step}.` }
   }
 
   if (data && Object.keys(data).length > 0) {
@@ -260,7 +264,7 @@ export async function generateIdeaAgentPipeline(ideaId: string) {
 
   const { data: idea, error: fetchError } = await supabase
     .from('business_ideas')
-    .select('step_approvals')
+    .select('step_data')
     .eq('id', ideaId)
     .single()
 
@@ -268,21 +272,21 @@ export async function generateIdeaAgentPipeline(ideaId: string) {
     return { error: fetchError.message }
   }
 
-  const approvals = (idea?.step_approvals as Record<string, unknown>) || {}
-  const nextPendingStep = getNextPendingIdeaStep(approvals)
+  const stepData = (idea?.step_data as Record<string, unknown>) || {}
+  const nextIncompleteStep = getNextIncompleteIdeaStep(stepData)
 
-  if (nextPendingStep === null) {
+  if (nextIncompleteStep === null) {
     return { error: 'No hay pasos pendientes por encolar.' }
   }
 
-  if (!canQueueIdeaStep(approvals, nextPendingStep)) {
-    return { error: `No se puede continuar el pipeline hasta aprobar el paso ${nextPendingStep}.` }
+  if (!canQueueAutomatedIdeaStep(stepData, nextIncompleteStep)) {
+    return { error: `No se puede continuar el pipeline hasta completar el paso ${nextIncompleteStep}.` }
   }
 
   const { error: queueError } = await supabase
     .from('business_ideas')
     .update({
-      current_step: nextPendingStep,
+      current_step: nextIncompleteStep,
       workflow_stage: 'idea_pipeline',
       automation_status: 'queued',
       automation_requested_at: new Date().toISOString(),
@@ -295,7 +299,7 @@ export async function generateIdeaAgentPipeline(ideaId: string) {
   }
 
   try {
-    const result = await queueIdeaPipelineAutomation(ideaId, { current_step: nextPendingStep })
+    const result = await queueIdeaPipelineAutomation(ideaId, { current_step: nextIncompleteStep })
     return {
       success: true,
       generated_steps: TOTAL_IDEA_STEPS,

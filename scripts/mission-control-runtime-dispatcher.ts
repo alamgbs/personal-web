@@ -15,7 +15,11 @@ import {
   normalizeGeneratedStepPayload,
 } from '@/lib/mission-control/ideas'
 import { getRuntimeProfile } from '@/lib/mission-control/agents'
-import { isIdeaReadyForReview } from '@/lib/mission-control/workflow'
+import {
+  canQueueAutomatedIdeaStep,
+  getNextIncompleteIdeaStep,
+  isIdeaReadyForReview,
+} from '@/lib/mission-control/workflow'
 
 type MissionControlWorkItemStatus = 'queued' | 'claimed' | 'running' | 'completed' | 'needs_feedback' | 'failed' | 'cancelled'
 type BacklogExecutableStatus = 'backlog' | 'claimed' | 'running' | 'in_progress' | 'done' | 'review' | 'failed' | 'blocked'
@@ -961,6 +965,70 @@ async function failMissionControlWorkItem(workItemId: string, error: string) {
   })
 }
 
+function buildMissionControlIdeaStepIdempotencyKey(ideaId: string, step: number) {
+  return `business_idea_step:${ideaId}:${step}`
+}
+
+async function enqueueNextAutomatedIdeaStepWorkItem(params: {
+  idea: IdeaRow
+  stepData: Record<string, unknown>
+}) {
+  const nextStep = getNextIncompleteIdeaStep(params.stepData)
+  if (nextStep === null || !canQueueAutomatedIdeaStep(params.stepData, nextStep)) {
+    return null
+  }
+
+  const supabase = createAdminClient()
+  const assignment = getIdeaStepAssignment(nextStep)
+  const currentStepData = asRecord(params.stepData[nextStep.toString()])
+  const now = nowIso()
+  const { data, error } = await supabase
+    .from('mission_control_work_items')
+    .upsert(
+      {
+        source_type: 'business_idea_step',
+        source_id: params.idea.id,
+        source_step_index: nextStep,
+        idempotency_key: buildMissionControlIdeaStepIdempotencyKey(params.idea.id, nextStep),
+        assignee_slug: assignment.slug,
+        profile_name: assignment.profile,
+        skill_names: assignment.skillNames.length ? assignment.skillNames : ['mission-control-workflows'],
+        status: 'queued',
+        priority: nextStep === IDEA_STEPS.length - 1 ? 'high' : 'normal',
+        input_json: {
+          action: 'generate_step',
+          idea_id: params.idea.id,
+          step: nextStep,
+          assigned_agent_slug: assignment.slug,
+          assigned_agent_name: assignment.name,
+          assigned_profile_name: assignment.profile,
+          assigned_skill_names: assignment.skillNames,
+          pending_feedback: typeof currentStepData.pending_feedback === 'string' ? currentStepData.pending_feedback : null,
+          rerun: false,
+          auto_continue: true,
+        },
+        output_json: null,
+        output_markdown: null,
+        claimed_by: null,
+        claimed_at: null,
+        started_at: null,
+        heartbeat_at: null,
+        completed_at: null,
+        last_error: null,
+        updated_at: now,
+      },
+      { onConflict: 'idempotency_key' }
+    )
+    .select('id')
+    .single()
+
+  if (error || !data) {
+    throw new Error(error?.message || `Failed to enqueue next automated idea step ${nextStep + 1}`)
+  }
+
+  return { workItemId: data.id as string, step: nextStep }
+}
+
 async function finalizeIdeaStepWorkItem(params: {
   workItem: MissionControlWorkItemRow
   idea: IdeaRow
@@ -992,6 +1060,12 @@ async function finalizeIdeaStepWorkItem(params: {
     },
   }
   const readyForReview = isIdeaReadyForReview(updatedStepData)
+  const nextQueuedStep = readyForReview
+    ? null
+    : await enqueueNextAutomatedIdeaStepWorkItem({
+        idea: params.idea,
+        stepData: updatedStepData,
+      })
 
   const automationRunCount = (params.idea.automation_run_count || 0) + 1
 
@@ -999,9 +1073,9 @@ async function finalizeIdeaStepWorkItem(params: {
     .from('business_ideas')
     .update({
       step_data: updatedStepData,
-      current_step: params.step,
+      current_step: nextQueuedStep?.step ?? params.step,
       workflow_stage: readyForReview ? 'idea_review' : 'idea_pipeline',
-      automation_status: 'needs_feedback',
+      automation_status: readyForReview ? 'needs_feedback' : 'queued',
       automation_completed_at: params.generatedAt,
       review_requested_at: readyForReview ? params.generatedAt : null,
       last_automation_error: null,
@@ -1015,19 +1089,26 @@ async function finalizeIdeaStepWorkItem(params: {
 
   await completeMissionControlWorkItem({
     workItemId: params.workItem.id,
-    finalStatus: 'needs_feedback',
+    finalStatus: readyForReview ? 'needs_feedback' : 'completed',
     outputMarkdown: params.markdown,
     outputJson: {
       step: params.step,
       step_payload: params.stepPayload,
       workflow_stage: readyForReview ? 'idea_review' : 'idea_pipeline',
-      automation_status: 'needs_feedback',
+      automation_status: readyForReview ? 'needs_feedback' : 'queued',
+      next_queued_step: nextQueuedStep?.step ?? null,
+      next_work_item_id: nextQueuedStep?.workItemId ?? null,
       generated_at: params.generatedAt,
       assignee_slug: params.workItem.assignee_slug,
       profile_name: params.workItem.profile_name,
       skill_names: params.workItem.skill_names || [],
     },
   })
+
+  return {
+    finalStatus: readyForReview ? 'needs_feedback' as const : 'completed' as const,
+    nextQueuedStep,
+  }
 }
 
 async function finalizeProjectArtifactWorkItem(params: {
@@ -1350,7 +1431,7 @@ async function runMissionControlRuntimeDispatcher() {
         }
         const markdown = stepPayload.content || run.content
         const generatedAt = nowIso()
-        await finalizeIdeaStepWorkItem({
+        const finalized = await finalizeIdeaStepWorkItem({
           workItem: item,
           idea,
           agent,
@@ -1362,7 +1443,7 @@ async function runMissionControlRuntimeDispatcher() {
         executions.push({
           id: item.id,
           source_type: item.source_type,
-          final_status: 'needs_feedback',
+          final_status: finalized.finalStatus,
           profile_name: profileName,
           skill_names: skillNames,
           artifact_preview: truncate(markdown),

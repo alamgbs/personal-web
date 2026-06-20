@@ -11,7 +11,11 @@ import {
   normalizeIdeaStepData,
 } from '@/lib/mission-control/ideas'
 import { generateProjectArtifactWithHermes } from '@/lib/mission-control/project-agent-runtime'
-import { canQueueIdeaStep, getNextPendingIdeaStep, isIdeaReadyForReview } from '@/lib/mission-control/workflow'
+import {
+  canQueueAutomatedIdeaStep,
+  getNextIncompleteIdeaStep,
+  isIdeaReadyForReview,
+} from '@/lib/mission-control/workflow'
 
 type JsonRecord = Record<string, unknown>
 
@@ -200,20 +204,16 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
     .eq('id', ideaId)
 
   let stepData = (idea.step_data as JsonRecord) || {}
-  let approvals = (idea.step_approvals as JsonRecord) || {}
 
   try {
     for (const step of IDEA_STEPS.map((_, index) => index)) {
-      if (approvals[step.toString()]) {
+      const existing = stepData[step.toString()] as JsonRecord | undefined
+      if (isIdeaStepComplete(step, existing)) {
         continue
       }
 
-      const existing = stepData[step.toString()] as JsonRecord | undefined
-      if (isIdeaStepComplete(step, existing)) {
-        if (!approvals[step.toString()]) {
-          break
-        }
-        continue
+      if (!canQueueAutomatedIdeaStep(stepData, step)) {
+        break
       }
 
       const assignment = getIdeaStepAssignment(step)
@@ -267,11 +267,6 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
         outputMarkdown: generated.content,
       })
 
-      approvals = {
-        ...approvals,
-        [step.toString()]: null,
-      }
-
       const { error: stepUpdateError } = await supabase
         .from('business_ideas')
         .update({
@@ -293,8 +288,8 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
     }
 
     const readyForReview = isIdeaReadyForReview(stepData)
-    const pendingStep = IDEA_STEPS.findIndex((_, index) => !approvals[index.toString()])
-    const currentStep = pendingStep === -1 ? FINAL_IDEA_STEP_INDEX : pendingStep
+    const nextIncompleteStep = getNextIncompleteIdeaStep(stepData)
+    const currentStep = nextIncompleteStep ?? FINAL_IDEA_STEP_INDEX
     const workflowStage = readyForReview ? 'idea_review' : 'idea_pipeline'
     const { error: finalizeError } = await supabase
       .from('business_ideas')
@@ -343,12 +338,11 @@ export async function runIdeaStepAutomation(ideaId: string, step: number) {
   }
 
   const currentStepData = (idea.step_data as JsonRecord) || {}
-  const currentApprovals = (idea.step_approvals as JsonRecord) || {}
   const existing = currentStepData[step.toString()] as JsonRecord | undefined
   const assignment = getIdeaStepAssignment(step)
 
-  if (step > 0 && !currentApprovals[(step - 1).toString()]) {
-    throw new Error(`No se puede generar el paso ${step + 1} antes de aprobar el paso ${step}.`)
+  if (!canQueueAutomatedIdeaStep(currentStepData, step)) {
+    throw new Error(`No se puede generar el paso ${step + 1} antes de completar el paso ${step}.`)
   }
 
   await supabase
@@ -461,15 +455,15 @@ export async function queueIdeaPipelineAutomation(
   }
 
   const requestedStep = typeof overrides.current_step === 'number' ? overrides.current_step : null
-  const approvals = (idea.step_approvals as JsonRecord) || {}
-  const nextPendingStep = getNextPendingIdeaStep(approvals)
-  const step = requestedStep ?? nextPendingStep ?? idea.current_step ?? 0
+  const stepData = (idea.step_data as JsonRecord) || {}
+  const nextIncompleteStep = getNextIncompleteIdeaStep(stepData)
+  const step = requestedStep ?? nextIncompleteStep ?? idea.current_step ?? 0
 
-  if (!canQueueIdeaStep(approvals, step)) {
-    throw new Error(`No se puede encolar el paso ${step + 1} sin aprobar antes el paso previo.`)
+  if (!canQueueAutomatedIdeaStep(stepData, step)) {
+    throw new Error(`No se puede encolar automáticamente el paso ${step + 1} sin completar antes el paso previo.`)
   }
 
-  if (requestedStep === null && nextPendingStep === null) {
+  if (requestedStep === null && nextIncompleteStep === null) {
     throw new Error('No hay pasos pendientes para encolar en esta idea.')
   }
 
