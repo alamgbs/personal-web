@@ -36,10 +36,12 @@ export async function sendIdeaFinalBriefToDailyBrief(input: IdeaBriefInput): Pro
 
   const pdf = await generateIdeaBriefPdf(input)
   const form = new FormData()
+  const message = buildIdeaBriefDiscordMessage(report)
+  const safeMessage = message.length > 1900 ? `${message.slice(0, 1899).trim()}…` : message
   form.append(
     'payload_json',
     JSON.stringify({
-      content: buildIdeaBriefDiscordMessage(report),
+      content: safeMessage,
       allowed_mentions: { parse: [] },
     })
   )

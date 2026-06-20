@@ -52,14 +52,16 @@ async function deliverToDiscord(params: { message: string; pdf: Uint8Array; file
   }
 
   const form = new FormData()
+  const safeMessage = params.message.length > 1900 ? `${params.message.slice(0, 1899).trim()}…` : params.message
   form.append(
     'payload_json',
     JSON.stringify({
-      content: params.message,
+      content: safeMessage,
       allowed_mentions: { parse: [] },
     })
   )
-  form.append('files[0]', new Blob([params.pdf], { type: 'application/pdf' }), params.filename)
+  const pdfPart = params.pdf.buffer.slice(params.pdf.byteOffset, params.pdf.byteOffset + params.pdf.byteLength) as ArrayBuffer
+  form.append('files[0]', new Blob([pdfPart], { type: 'application/pdf' }), params.filename)
 
   const response = webhookUrl
     ? await fetch(webhookUrl, { method: 'POST', body: form })
