@@ -856,6 +856,90 @@ function buildIdeaStepPrompt(params: {
   ].join('\n')
 }
 
+function validateIdeaStepPayload(step: number, content: string) {
+  const rawStepPayload = parseHermesJson(content)
+  const stepPayload = normalizeGeneratedStepPayload(step, rawStepPayload)
+  const missingFields = getMissingStructuredFields(step, stepPayload)
+
+  if (missingFields.length) {
+    const labels = getFieldLabelMap(step)
+    throw new Error(
+      `El agente devolvió un payload incompleto. Faltan campos obligatorios: ${missingFields
+        .map((field) => labels[field] || field)
+        .join(', ')}`
+    )
+  }
+
+  return stepPayload
+}
+
+function buildIdeaStepCorrectionPrompt(params: {
+  basePrompt: string
+  step: number
+  previousOutput: string
+  error: string
+}) {
+  return [
+    params.basePrompt,
+    '',
+    'Corrección obligatoria:',
+    'El intento anterior no pudo persistirse porque no cumplió el contrato JSON estructurado.',
+    `Error detectado: ${params.error}`,
+    '',
+    'Output anterior del agente:',
+    truncate(params.previousOutput, 8000) || 'Sin output anterior.',
+    '',
+    'Repara la respuesta anterior y devuelve SOLO un objeto JSON válido, sin markdown, sin comentario, sin fences de código.',
+    'El JSON debe cumplir exactamente este schema requerido:',
+    JSON.stringify(buildIdeaStepRequiredSchema(params.step), null, 2),
+  ].join('\n')
+}
+
+async function runIdeaStepWithStructuredRetry(params: {
+  profileName: string | null
+  skillNames: string[]
+  prompt: string
+  step: number
+}) {
+  const firstRun = await runHermesChild({
+    profileName: params.profileName,
+    skillNames: params.skillNames,
+    prompt: params.prompt,
+  })
+
+  try {
+    return {
+      content: firstRun.content,
+      stepPayload: validateIdeaStepPayload(params.step, firstRun.content),
+      retried: false,
+    }
+  } catch (firstError) {
+    const firstMessage = firstError instanceof Error ? firstError.message : String(firstError)
+    const correctionPrompt = buildIdeaStepCorrectionPrompt({
+      basePrompt: params.prompt,
+      step: params.step,
+      previousOutput: firstRun.content,
+      error: firstMessage,
+    })
+    const secondRun = await runHermesChild({
+      profileName: params.profileName,
+      skillNames: params.skillNames,
+      prompt: correctionPrompt,
+    })
+
+    try {
+      return {
+        content: secondRun.content,
+        stepPayload: validateIdeaStepPayload(params.step, secondRun.content),
+        retried: true,
+      }
+    } catch (secondError) {
+      const secondMessage = secondError instanceof Error ? secondError.message : String(secondError)
+      throw new Error(`El agente no devolvió JSON estructurado válido tras reintento. Primer error: ${firstMessage}. Segundo error: ${secondMessage}`)
+    }
+  }
+}
+
 function buildBacklogTaskPrompt(params: {
   agent: AgentRow
   project: ProjectRow
@@ -1417,18 +1501,8 @@ async function runMissionControlRuntimeDispatcher() {
           step,
           inputJson: item.input_json || {},
         })
-        const run = await runHermesChild({ profileName, skillNames, prompt })
-        const rawStepPayload = parseHermesJson(run.content)
-        const stepPayload = normalizeGeneratedStepPayload(step, rawStepPayload)
-        const missingFields = getMissingStructuredFields(step, stepPayload)
-        if (missingFields.length) {
-          const labels = getFieldLabelMap(step)
-          throw new Error(
-            `El agente devolvió un payload incompleto. Faltan campos obligatorios: ${missingFields
-              .map((field) => labels[field] || field)
-              .join(', ')}`
-          )
-        }
+        const run = await runIdeaStepWithStructuredRetry({ profileName, skillNames, prompt, step })
+        const stepPayload = run.stepPayload
         const markdown = stepPayload.content || run.content
         const generatedAt = nowIso()
         const finalized = await finalizeIdeaStepWorkItem({
