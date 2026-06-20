@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --test tests/*.test.ts",
-    "migrate:idea-step-data": "tsx scripts/migrate-legacy-idea-step-data.ts"
+    "migrate:idea-step-data": "tsx scripts/migrate-legacy-idea-step-data.ts",
+    "send:pending-idea-briefs": "tsx scripts/send-pending-idea-briefs.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
