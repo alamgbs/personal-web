@@ -222,7 +222,7 @@ export async function getIdeaStepRuntimeSnapshot(ideaId: string) {
 
   const { data, error } = await supabase
     .from('mission_control_work_items')
-    .select('id, source_step_index, assignee_slug, profile_name, skill_names, status, attempt_count, max_attempts, last_error, claimed_at, started_at, heartbeat_at, completed_at, updated_at')
+    .select('id, source_step_index, assignee_slug, profile_name, skill_names, status, attempt_count, last_error, claimed_at, started_at, heartbeat_at, completed_at, updated_at')
     .eq('source_type', 'business_idea_step')
     .eq('source_id', ideaId)
     .order('source_step_index', { ascending: true })
@@ -244,7 +244,6 @@ export async function getIdeaStepRuntimeSnapshot(ideaId: string) {
       skill_names: row.skill_names || [],
       status: row.status,
       attempt_count: row.attempt_count,
-      max_attempts: row.max_attempts,
       last_error: row.last_error,
       claimed_at: row.claimed_at,
       started_at: row.started_at,
