@@ -56,13 +56,13 @@ test('getIdeaStepAssignment resolves runtime profile and skill defaults for each
     skillNames: ['wizard-step1-problem-validation'],
   })
 
-  assert.deepEqual(getIdeaStepAssignment(8), {
+  assert.deepEqual(getIdeaStepAssignment(9), {
     slug: 'hermes',
     name: 'Hermes',
     team: 'Command',
     profile: 'mc-hermes',
-    skillName: 'wizard-step9-go-no-go',
-    skillNames: ['wizard-step9-go-no-go'],
+    skillName: 'wizard-step10-go-no-go',
+    skillNames: ['wizard-step10-go-no-go'],
   })
 })
 

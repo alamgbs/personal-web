@@ -2,10 +2,9 @@ import { existsSync } from 'node:fs'
 import { promisify } from 'node:util'
 import { execFile } from 'node:child_process'
 import {
-  ALL_CASHFLOW_ROWS,
   ALL_PNL_INPUT_ROWS,
   BMC_FIELDS,
-  CASHFLOW_PERIODS,
+  COST_PRICING_FIELDS,
   CUSTOMER_ARCHETYPE_FIELDS,
   CUSTOMER_JOURNEY_FIELDS,
   GO_NO_GO_FIELDS,
@@ -198,12 +197,8 @@ function buildJsonSchemaHint(step: number) {
     case 'cashflow':
       return JSON.stringify(
         {
-          content: 'Lectura ejecutiva del cashflow y de la curva de caja.',
-          ...Object.fromEntries(
-            ALL_CASHFLOW_ROWS.flatMap((field) =>
-              CASHFLOW_PERIODS.map((period) => [`${field.key}__${period}`, `${field.label} para ${period} en USD`])
-            )
-          ),
+          content: 'Lectura ejecutiva de costos, pricing, margen y umbral de break-even bajo un escenario bootstrapped.',
+          ...Object.fromEntries(COST_PRICING_FIELDS.map((field) => [field.key, field.label])),
         },
         null,
         2
@@ -280,9 +275,10 @@ function buildStepSpecificGuidance(step: number) {
       ].join('\n')
     case 'cashflow':
       return [
-        '- Usa los periodos M1-M6, Q3-Q10, Y5 y Y10.',
-        '- Completa composición de ingresos y egresos, no solo totales agregados.',
-        '- Piensa como operador financiero: diferencia caja vs rentabilidad, burn vs runway y timing de cobros/pagos.',
+        '- No construyas un cashflow mes a mes salvo que Alam lo pida explícitamente.',
+        '- Asume bootstrap por defecto: Alam vibecodea con Ceci/agentes, sin VC grande, con capital inicial acotado para APIs/tools/redes/marketing.',
+        '- Enfócate en costos fijos, costos variables por uso, pricing inicial, margen bruto, break-even y validaciones financieras accionables.',
+        '- El revenue de la app debe ser el motor de crecimiento; prioriza canales orgánicos y marketing pautado pequeño al inicio.',
       ].join('\n')
     case 'tam':
       return [

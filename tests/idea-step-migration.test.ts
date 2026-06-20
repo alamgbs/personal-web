@@ -25,16 +25,47 @@ test('migrateIdeaRecordShape remaps the legacy step order into the new Moonshot 
   })
 
   assert.equal(result.changed, true)
-  assert.equal(result.current_step, 8)
+  assert.equal(result.current_step, 9)
   assert.match(String((result.step_data['0'] as Record<string, unknown>).content || ''), /Legacy problem definition/)
   assert.match(String((result.step_data['0'] as Record<string, unknown>).content || ''), /Legacy pain points/)
   assert.equal((result.step_data['1'] as Record<string, unknown>).content, 'Legacy archetype')
   assert.equal((result.step_data['2'] as Record<string, unknown>).content, 'Legacy journey')
   assert.equal((result.step_data['3'] as Record<string, unknown>).content, 'Legacy BMC')
-  assert.equal((result.step_data['4'] as Record<string, unknown>).content, 'Legacy TAM')
-  assert.equal((result.step_data['8'] as Record<string, unknown>).content, '# Go / No Go\n\n## Recomendación\nGo condicionado a un MVP muy enfocado.')
+  assert.equal(result.step_data['4'], undefined)
+  assert.equal((result.step_data['5'] as Record<string, unknown>).content, 'Legacy TAM')
+  assert.equal((result.step_data['9'] as Record<string, unknown>).content, '# Go / No Go\n\n## Recomendación\nGo condicionado a un MVP muy enfocado.')
   assert.equal(result.step_approvals['0'], '2026-06-14T00:00:00.000Z')
-  assert.equal(result.step_approvals['8'], '2026-06-15T00:00:00.000Z')
+  assert.equal(result.step_approvals['9'], '2026-06-15T00:00:00.000Z')
+})
+
+test('migrateIdeaRecordShape inserts the Benchmark step after BMC for current Moonshot records', () => {
+  const result = migrateIdeaRecordShape({
+    current_step: 8,
+    step_data: {
+      '0': { content: 'Problem definition' },
+      '1': { content: 'Customer archetype' },
+      '2': { content: 'Customer journey' },
+      '3': { content: 'Business Model Canvas' },
+      '4': { content: 'TAM / SAM / SOM' },
+      '5': { content: 'P&L' },
+      '6': { content: 'Cash Flow' },
+      '7': { content: 'Moat Analysis' },
+      '8': { content: '# Go / No-Go\n\nDecisión ejecutiva.' },
+    },
+    step_approvals: {
+      '4': '2026-06-16T00:00:00.000Z',
+      '8': '2026-06-17T00:00:00.000Z',
+    },
+  })
+
+  assert.equal(result.changed, true)
+  assert.equal(result.current_step, 9)
+  assert.equal(result.step_data['4'], undefined)
+  assert.equal((result.step_data['5'] as Record<string, unknown>).content, 'TAM / SAM / SOM')
+  assert.equal((result.step_data['8'] as Record<string, unknown>).content, 'Moat Analysis')
+  assert.equal((result.step_data['9'] as Record<string, unknown>).content, '# Go / No-Go\n\nDecisión ejecutiva.')
+  assert.equal(result.step_approvals['5'], '2026-06-16T00:00:00.000Z')
+  assert.equal(result.step_approvals['9'], '2026-06-17T00:00:00.000Z')
 })
 
 test('upgradeLegacyIdeaStepPayload maps BMC markdown sections to current field keys', () => {
@@ -56,7 +87,7 @@ test('upgradeLegacyIdeaStepPayload maps BMC markdown sections to current field k
 })
 
 test('upgradeLegacyIdeaStepPayload maps legacy P&L summary rows into current schema', () => {
-  const result = upgradeLegacyIdeaStepPayload(5, {
+  const result = upgradeLegacyIdeaStepPayload(6, {
     content: '| Rubro | Año 1 | Año 2 |\n|---|---:|---:|\n| Ingresos | USD 35k–90k | USD 180k–420k |\n| Costo de ventas / entrega | USD 15k–40k | USD 45k–130k |\n| Opex | USD 110k–200k | USD 160k–300k |\n| Resultado operativo | -USD 60k a -150k | -USD 40k a +90k |',
   })
 

@@ -3,6 +3,7 @@ export type IdeaStepKind =
   | 'customer-archetype'
   | 'customer-journey'
   | 'bmc'
+  | 'benchmark'
   | 'pnl'
   | 'cashflow'
   | 'tam'
@@ -145,6 +146,34 @@ export const BMC_FIELDS: IdeaFieldDefinition[] = [
   { key: 'revenue_streams', label: 'Flujos de Ingresos' },
 ]
 
+export const BENCHMARK_COMPETITOR_ROWS = [
+  { key: 'competitor_1', label: 'Competidor / alternativa 1' },
+  { key: 'competitor_2', label: 'Competidor / alternativa 2' },
+  { key: 'competitor_3', label: 'Competidor / alternativa 3' },
+  { key: 'competitor_4', label: 'Competidor / alternativa 4' },
+  { key: 'competitor_5', label: 'Competidor / alternativa 5' },
+] as const
+
+export const BENCHMARK_COLUMNS: ReadonlyArray<{ suffix: string; label: string; placeholder: string; tone?: IdeaFieldDefinition['tone'] }> = [
+  { suffix: 'name', label: 'Nombre', placeholder: 'Empresa, producto o workaround específico', tone: 'acid' },
+  { suffix: 'type', label: 'Tipo', placeholder: 'Directo exacto / indirecto / alternativa manual / incumbente' },
+  { suffix: 'solution_path', label: 'Cómo resuelve el problema', placeholder: 'La alternativa que ofrece hoy para el mismo job-to-be-done' },
+  { suffix: 'pricing', label: 'Precio', placeholder: 'Plan, ACV, fee, freemium, no público o estimación' },
+  { suffix: 'users', label: 'Usuarios / escala', placeholder: 'Usuarios, clientes, ARR, descargas o señal pública de escala' },
+  { suffix: 'founded', label: 'Fundación', placeholder: 'Año de fundación o inicio de la alternativa' },
+  { suffix: 'features', label: 'Features principales', placeholder: '3-5 features relevantes para comparar' },
+  { suffix: 'edge_or_gap', label: 'Ventaja / gap', placeholder: 'Qué hacen mejor y dónde dejan una oportunidad', tone: 'coral' },
+] as const
+
+export const BENCHMARK_FIELDS: IdeaFieldDefinition[] = BENCHMARK_COMPETITOR_ROWS.flatMap((row) =>
+  BENCHMARK_COLUMNS.map((column) => ({
+    key: `${row.key}_${column.suffix}`,
+    label: `${row.label} · ${column.label}`,
+    placeholder: column.placeholder,
+    tone: column.tone,
+  }))
+)
+
 export const PNL_INPUT_GROUPS: IdeaFieldGroup[] = [
   {
     label: 'Ingresos',
@@ -238,6 +267,68 @@ export const CASHFLOW_OUTFLOW_ROWS: IdeaFieldDefinition[] = [
   { key: 'out_other', label: 'Otros egresos', tone: 'coral' },
 ]
 
+export const COST_PRICING_FIELDS: IdeaFieldDefinition[] = [
+  {
+    key: 'bootstrap_assumptions',
+    label: 'Supuesto financiero base',
+    placeholder: 'Bootstrap: Alam como indie dev + Ceci/agentes, sin VC grande; qué implica para el análisis.',
+    tone: 'blue',
+  },
+  {
+    key: 'initial_budget_use',
+    label: 'Uso del capital inicial',
+    placeholder: 'APIs, herramientas, redes sociales, marketing pautado acotado; separar must-have vs nice-to-have.',
+    tone: 'blue',
+  },
+  {
+    key: 'fixed_monthly_costs',
+    label: 'Costos fijos mensuales',
+    placeholder: 'Infra, SaaS, APIs base, dominios, legal/contable mínimo. Rango mensual estimado.',
+    tone: 'coral',
+  },
+  {
+    key: 'variable_unit_costs',
+    label: 'Costos variables por usuario/uso',
+    placeholder: 'LLM/API calls, storage, pagos, soporte, operaciones por transacción o usuario activo.',
+    tone: 'coral',
+  },
+  {
+    key: 'pricing_model',
+    label: 'Modelo de pricing recomendado',
+    placeholder: 'Suscripción, usage-based, freemium, setup fee, tiers; explicar por qué encaja con el buyer.',
+    tone: 'acid',
+  },
+  {
+    key: 'estimated_price',
+    label: 'Precio estimado',
+    placeholder: 'Rango inicial por cliente/usuario/mes/transacción y benchmark de willingness-to-pay.',
+    tone: 'acid',
+  },
+  {
+    key: 'gross_margin',
+    label: 'Margen bruto estimado',
+    placeholder: 'Margen bruto esperado y drivers principales; aclarar sensibilidad a APIs/soporte.',
+    tone: 'acid',
+  },
+  {
+    key: 'break_even_threshold',
+    label: 'Umbral de break-even',
+    placeholder: 'Cuántos clientes/usuarios/ventas cubren costos fijos y variables iniciales.',
+    tone: 'blue',
+  },
+  {
+    key: 'bootstrap_risks',
+    label: 'Riesgos financieros bootstrap',
+    placeholder: 'Qué puede comerse el margen o forzar caja externa; señales tempranas de alerta.',
+    tone: 'coral',
+  },
+  {
+    key: 'next_finance_checks',
+    label: 'Próximas validaciones financieras',
+    placeholder: 'Qué datos validar primero: costos de API, WTP, CAC orgánico/pautado, conversión, churn.',
+  },
+]
+
 export const TAM_FIELDS: IdeaFieldDefinition[] = [
   { key: 'tam', label: 'TAM — Total Addressable Market', tone: 'acid' },
   { key: 'tam_num', label: 'TAM USD', tone: 'acid' },
@@ -315,6 +406,16 @@ export const IDEA_STEPS: IdeaStepDefinition[] = [
     ],
   },
   {
+    label: 'Competitive Benchmark',
+    hint: 'Tabla comparativa de competidores directos exactos e indirectos, incluyendo alternativas reales para resolver el problema',
+    kind: 'benchmark',
+    questions: [
+      'Identifica competidores directos exactos y alternativas indirectas que resuelven el mismo problema aunque usen otra solución.',
+      'Completa una tabla con nombre, tipo, camino de solución, precio, usuarios o escala, año de fundación, features y gaps.',
+      'Si un dato no es público, dilo explícitamente y usa una estimación razonada o una señal proxy verificable.',
+    ],
+  },
+  {
     label: 'TAM / SAM / SOM',
     hint: 'Sizing de mercado con método explícito, supuestos verificables y narrativa de captura',
     kind: 'tam',
@@ -335,13 +436,13 @@ export const IDEA_STEPS: IdeaStepDefinition[] = [
     ],
   },
   {
-    label: 'Cash Flow',
-    hint: 'Flujo de caja por períodos con entradas, salidas, burn, runway y ciclo de conversión',
+    label: 'Costos, Pricing & Margen',
+    hint: 'Análisis simple para proyectos bootstrapped: costos reales, pricing inicial, margen, break-even y riesgos de caja',
     kind: 'cashflow',
     questions: [
-      'Proyecta ingresos, egresos y caja neta por período usando composición real de entradas y salidas.',
-      'Diferencia profit teórico vs caja disponible y explica si se cobra antes o después de pagar costos clave.',
-      'Calcula burn rate, runway y momento proyectado de equilibrio.',
+      'Asume por defecto un proyecto bootstrapped: Alam como indie dev, Ceci/agentes como apoyo, sin VC ni inversión millonaria inicial.',
+      'Estima costos fijos, costos variables por uso/usuario, uso acotado de capital inicial y qué parte puede crecer orgánicamente.',
+      'Propón pricing inicial, margen bruto, umbral de break-even y validaciones financieras prioritarias.',
     ],
   },
   {

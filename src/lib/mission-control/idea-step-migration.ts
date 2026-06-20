@@ -1,8 +1,10 @@
 import {
   ALL_CASHFLOW_ROWS,
   ALL_PNL_INPUT_ROWS,
+  BENCHMARK_FIELDS,
   BMC_FIELDS,
   CASHFLOW_PERIODS,
+  COST_PRICING_FIELDS,
   CUSTOMER_ARCHETYPE_FIELDS,
   CUSTOMER_JOURNEY_FIELDS,
   GO_NO_GO_FIELDS,
@@ -18,6 +20,9 @@ const META_KEYS = new Set([
   'pending_feedback',
   'assigned_agent_slug',
   'assigned_agent_name',
+  'assigned_profile_name',
+  'assigned_skill_name',
+  'assigned_skill_names',
   'generated_at',
   'generated_by',
   'generated_by_name',
@@ -39,11 +44,6 @@ const LEGACY_MONTH_TO_PERIOD: Record<string, string> = {
   May: 'M5',
   Jun: 'M6',
 }
-
-const LEGACY_QUARTER_TO_PERIOD: Array<{ months: string[]; period: string }> = [
-  { months: ['Jul', 'Ago', 'Sep'], period: 'Q3' },
-  { months: ['Oct', 'Nov', 'Dic'], period: 'Q4' },
-]
 
 export type IdeaRecordMigrationInput = {
   current_step: number | null
@@ -69,11 +69,11 @@ export function migrateIdeaRecordShape(input: IdeaRecordMigrationInput): IdeaRec
     step_approvals: stepApprovals,
   })
 
-  const shiftedCurrentStep = shiftLegacyFinalStep(stepData, stepApprovals, currentStep)
-  currentStep = shiftedCurrentStep
-
   const remapped = remapLegacyStepOrder(stepData, stepApprovals, currentStep)
   currentStep = remapped.currentStep
+
+  const benchmarkInserted = insertBenchmarkStepAfterBmc(stepData, stepApprovals, currentStep)
+  currentStep = benchmarkInserted.currentStep
 
   for (const [stepKey, rawValue] of Object.entries(stepData)) {
     const step = Number(stepKey)
@@ -187,13 +187,13 @@ function remapLegacyStepOrder(
   stepApprovals: Record<string, unknown>,
   currentStep: number
 ) {
-  const hasLegacyShape = currentStep > 8 || Object.prototype.hasOwnProperty.call(stepData, '9')
-  if (!hasLegacyShape) {
+  if (!looksLikeLegacyPreMoonshotOrder(stepData, currentStep)) {
     return { currentStep }
   }
 
   const oldProblem = asRecord(stepData['2'])
   const oldPainPoints = asRecord(stepData['3'])
+  const oldFinalAt8 = isLegacyGoNoGoContent(normalizeText(asRecord(stepData['8']).content))
   const mergedProblem = mergeLegacyProblemAndPainPointSteps(oldProblem, oldPainPoints)
 
   const remappedStepData: Record<string, unknown> = {
@@ -201,28 +201,28 @@ function remapLegacyStepOrder(
     '1': asRecord(stepData['0']),
     '2': asRecord(stepData['1']),
     '3': asRecord(stepData['4']),
-    '4': asRecord(stepData['7']),
-    '5': asRecord(stepData['5']),
-    '6': asRecord(stepData['6']),
-    '7': asRecord(stepData['8']),
-    '8': asRecord(stepData['9']),
+    '4': {},
+    '5': asRecord(stepData['7']),
+    '6': asRecord(stepData['5']),
+    '7': asRecord(stepData['6']),
+    '8': oldFinalAt8 ? {} : asRecord(stepData['8']),
+    '9': oldFinalAt8 ? asRecord(stepData['8']) : asRecord(stepData['9']),
   }
 
-  const remappedApprovals: Record<string, unknown> = {
-    ...(stepApprovals['0'] || stepApprovals['1'] || stepApprovals['2'] || stepApprovals['3'] || stepApprovals['4'] || stepApprovals['5'] || stepApprovals['6'] || stepApprovals['7'] || stepApprovals['8'] || stepApprovals['9']
-      ? {
-          '0': stepApprovals['2'] || stepApprovals['3'],
-          '1': stepApprovals['0'],
-          '2': stepApprovals['1'],
-          '3': stepApprovals['4'],
-          '4': stepApprovals['7'],
-          '5': stepApprovals['5'],
-          '6': stepApprovals['6'],
-          '7': stepApprovals['8'],
-          '8': stepApprovals['9'],
-        }
-      : {}),
-  }
+  const hasApprovals = Object.keys(stepApprovals).length > 0
+  const remappedApprovals: Record<string, unknown> = hasApprovals
+    ? {
+        '0': stepApprovals['2'] || stepApprovals['3'],
+        '1': stepApprovals['0'],
+        '2': stepApprovals['1'],
+        '3': stepApprovals['4'],
+        '5': stepApprovals['7'],
+        '6': stepApprovals['5'],
+        '7': stepApprovals['6'],
+        '8': oldFinalAt8 ? undefined : stepApprovals['8'],
+        '9': oldFinalAt8 ? stepApprovals['8'] : stepApprovals['9'],
+      }
+    : {}
 
   for (const key of Object.keys(stepData)) delete stepData[key]
   for (const [key, value] of Object.entries(remappedStepData)) {
@@ -238,11 +238,67 @@ function remapLegacyStepOrder(
   }
 
   return {
-    currentStep: mapLegacyCurrentStep(currentStep),
+    currentStep: mapLegacyCurrentStep(currentStep, oldFinalAt8),
   }
 }
 
-function mapLegacyCurrentStep(currentStep: number) {
+function looksLikeLegacyPreMoonshotOrder(stepData: Record<string, unknown>, currentStep: number) {
+  const step4Content = normalizeText(asRecord(stepData['4']).content)
+  const step7Content = normalizeText(asRecord(stepData['7']).content)
+  const step8Content = normalizeText(asRecord(stepData['8']).content)
+  const step9Content = normalizeText(asRecord(stepData['9']).content)
+
+  const hasOldBmcAt4 = /bmc|business model|canvas|propuesta de valor|socios clave/i.test(step4Content)
+  const hasOldTamAt7 = /tam|sam|som|mercado|sizing/i.test(step7Content)
+  const hasOldFinal = isLegacyGoNoGoContent(step9Content) || isLegacyGoNoGoContent(step8Content)
+
+  return hasOldBmcAt4 && hasOldTamAt7 && (hasOldFinal || currentStep > 8)
+}
+
+function insertBenchmarkStepAfterBmc(
+  stepData: Record<string, unknown>,
+  stepApprovals: Record<string, unknown>,
+  currentStep: number
+) {
+  if (Object.prototype.hasOwnProperty.call(stepData, '9')) {
+    return { currentStep }
+  }
+
+  const hasPostBmcProgress = currentStep >= 4 || ['4', '5', '6', '7', '8'].some((key) =>
+    Object.prototype.hasOwnProperty.call(stepData, key)
+  )
+  if (!hasPostBmcProgress) {
+    return { currentStep }
+  }
+
+  const originalStepData = { ...stepData }
+  const originalApprovals = { ...stepApprovals }
+
+  for (const key of Object.keys(stepData)) {
+    if (Number(key) >= 4) delete stepData[key]
+  }
+  for (const key of Object.keys(stepApprovals)) {
+    if (Number(key) >= 4) delete stepApprovals[key]
+  }
+
+  for (const [key, value] of Object.entries(originalStepData)) {
+    const step = Number(key)
+    if (!Number.isInteger(step) || step < 4) continue
+    stepData[String(step + 1)] = value
+  }
+
+  for (const [key, value] of Object.entries(originalApprovals)) {
+    const step = Number(key)
+    if (!Number.isInteger(step) || step < 4) continue
+    stepApprovals[String(step + 1)] = value
+  }
+
+  return {
+    currentStep: currentStep > 4 ? Math.min(currentStep + 1, 9) : currentStep,
+  }
+}
+
+function mapLegacyCurrentStep(currentStep: number, oldFinalAt8: boolean) {
   switch (currentStep) {
     case 0:
       return 1
@@ -254,17 +310,17 @@ function mapLegacyCurrentStep(currentStep: number) {
     case 4:
       return 3
     case 5:
-      return 5
-    case 6:
       return 6
-    case 7:
-      return 4
-    case 8:
+    case 6:
       return 7
+    case 7:
+      return 5
+    case 8:
+      return oldFinalAt8 ? 9 : 8
     case 9:
-      return 8
+      return 9
     default:
-      return Math.min(currentStep, 8)
+      return Math.min(currentStep, 9)
   }
 }
 
@@ -307,6 +363,8 @@ function parseLegacyStructuredFields(step: number, payload: Record<string, unkno
       return parseCustomerJourney(content)
     case 'bmc':
       return parseBusinessModelCanvas(content, payload)
+    case 'benchmark':
+      return parseBenchmark(content, payload)
     case 'pnl':
       return parsePnl(content, payload)
     case 'cashflow':
@@ -442,6 +500,41 @@ function parseBusinessModelCanvas(content: string, payload: Record<string, unkno
   }
 }
 
+function parseBenchmark(content: string, payload: Record<string, unknown>) {
+  const mapped: Record<string, string> = {}
+
+  for (const field of BENCHMARK_FIELDS) {
+    const direct = normalizeText(payload[field.key])
+    if (direct) {
+      mapped[field.key] = direct
+      continue
+    }
+
+    const [, rowNumber, suffix] = field.key.match(/^competitor_(\d+)_(.+)$/) || []
+    if (!rowNumber || !suffix) continue
+
+    const row = extractMarkdownTableRow(content, Number(rowNumber))
+    if (!row.length) continue
+
+    const columnIndexBySuffix: Record<string, number> = {
+      name: 0,
+      type: 1,
+      solution_path: 2,
+      pricing: 3,
+      users: 4,
+      founded: 5,
+      features: 6,
+      edge_or_gap: 7,
+    }
+    const columnIndex = columnIndexBySuffix[suffix]
+    if (columnIndex !== undefined) {
+      mapped[field.key] = normalizeText(row[columnIndex])
+    }
+  }
+
+  return mapped
+}
+
 function parsePnl(content: string, payload: Record<string, unknown>) {
   const revenue = normalizeText(payload['Ingresos']) || extractTableRowValue(content, 'Ingresos')
   const cogs = normalizeText(payload['COGS']) || extractTableRowValue(content, 'Costo de ventas / entrega')
@@ -470,39 +563,56 @@ function parsePnl(content: string, payload: Record<string, unknown>) {
 }
 
 function parseCashflow(content: string, payload: Record<string, unknown>) {
-  const mapped: Record<string, string> = {}
+  const direct = Object.fromEntries(
+    COST_PRICING_FIELDS.map((field) => [field.key, normalizeText(payload[field.key])])
+  ) as Record<string, string>
 
+  if (Object.values(direct).some(Boolean)) {
+    return direct
+  }
+
+  const legacyLines: string[] = []
   for (const [legacyMonth, period] of Object.entries(LEGACY_MONTH_TO_PERIOD)) {
     const inflow = normalizeText(payload[`in_${legacyMonth}`])
     const outflow = normalizeText(payload[`out_${legacyMonth}`])
-
-    if (inflow) {
-      mapped[`in_recurring__${period}`] = inflow
-    }
-    if (outflow) {
-      mapped[`out_payroll__${period}`] = outflow
-    }
+    if (inflow || outflow) legacyLines.push(`${period}: ingresos ${inflow || 's/d'}; egresos ${outflow || 's/d'}`)
   }
 
-  for (const quarter of LEGACY_QUARTER_TO_PERIOD) {
-    const inflowValues = quarter.months.map((month) => normalizeText(payload[`in_${month}`])).filter(Boolean)
-    const outflowValues = quarter.months.map((month) => normalizeText(payload[`out_${month}`])).filter(Boolean)
-
-    if (inflowValues.length) {
-      mapped[`in_recurring__${quarter.period}`] = inflowValues.join(' + ')
-    }
-    if (outflowValues.length) {
-      mapped[`out_payroll__${quarter.period}`] = outflowValues.join(' + ')
-    }
+  for (const row of ALL_CASHFLOW_ROWS) {
+    const values = CASHFLOW_PERIODS
+      .map((period) => {
+        const value = normalizeText(payload[`${row.key}__${period}`])
+        return value ? `${period} ${value}` : ''
+      })
+      .filter(Boolean)
+    if (values.length) legacyLines.push(`${row.label}: ${values.join(' · ')}`)
   }
 
-  if (Object.keys(mapped).length) {
-    return mapped
-  }
+  const legacySummary = legacyLines.join('\n')
 
   return {
-    in_other__M1: extractSection(content, /###\s+Tesis de flujo de caja a 12 meses/i, '###'),
-    out_other__M1: extractSection(content, /###\s+Escenarios de tensión/i, '###'),
+    bootstrap_assumptions: firstNonEmpty(
+      extractSection(content, /bootstrap|bootstrapped|runway|caja inicial/i, '###'),
+      'Proyecto analizado como bootstrap: sin VC grande inicial; revisar supuestos con revenue real de la app.'
+    ),
+    initial_budget_use: firstNonEmpty(
+      extractSection(content, /capital inicial|presupuesto inicial|herramientas|apis|marketing/i, '###'),
+      extractSection(content, /###\s+Tesis de flujo de caja a 12 meses/i, '###')
+    ),
+    fixed_monthly_costs: firstNonEmpty(
+      extractSection(content, /costos fijos|infra|herramientas|software/i, '###'),
+      legacySummary
+    ),
+    variable_unit_costs: extractSection(content, /costos variables|costo por usuario|api calls|uso/i, '###'),
+    pricing_model: extractSection(content, /pricing|precio|monetizaci[oó]n|modelo de ingresos/i, '###'),
+    estimated_price: firstNonEmpty(extractMoneySnippet(content), extractTableRowValue(content, 'Precio')),
+    gross_margin: extractSection(content, /margen|gross margin|margen bruto/i, '###'),
+    break_even_threshold: extractSection(content, /break-?even|equilibrio|punto de equilibrio/i, '###'),
+    bootstrap_risks: firstNonEmpty(
+      extractSection(content, /riesgo|tensi[oó]n|sensibilidad/i, '###'),
+      extractSection(content, /###\s+Escenarios de tensión/i, '###')
+    ),
+    next_finance_checks: extractSection(content, /validaciones|pr[oó]ximos checks|experimentos financieros/i, '###'),
   }
 }
 
@@ -586,8 +696,9 @@ function buildStructuredFallback(step: number, payload: Record<string, unknown>)
     'customer-archetype': 'early_user_thesis',
     'customer-journey': 'discovery_customer_need',
     bmc: 'value_proposition',
+    benchmark: 'competitor_1_name',
     pnl: 'revenue_other',
-    cashflow: 'in_other__M1',
+    cashflow: 'fixed_monthly_costs',
     tam: 'methodology',
     moat: 'moat_building_plan',
     'go-no-go': 'decision_rationale',
@@ -610,10 +721,12 @@ function getStructuredFieldKeysByKind(kind: IdeaStepKind | undefined) {
       return CUSTOMER_JOURNEY_FIELDS.map((field) => field.key)
     case 'bmc':
       return BMC_FIELDS.map((field) => field.key)
+    case 'benchmark':
+      return BENCHMARK_FIELDS.map((field) => field.key)
     case 'pnl':
       return ALL_PNL_INPUT_ROWS.map((field) => field.key)
     case 'cashflow':
-      return ALL_CASHFLOW_ROWS.flatMap((field) => CASHFLOW_PERIODS.map((period) => `${field.key}__${period}`))
+      return COST_PRICING_FIELDS.map((field) => field.key)
     case 'tam':
       return TAM_FIELDS.map((field) => field.key)
     case 'moat':
@@ -680,6 +793,26 @@ function extractTableRowValue(content: string, label: string) {
   }
 
   return ''
+}
+
+function extractMarkdownTableRow(content: string, rowNumber: number) {
+  if (!content || rowNumber < 1) return []
+
+  const rows = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('|'))
+    .map((line) =>
+      line
+        .split('|')
+        .map((cell) => cell.trim())
+        .filter(Boolean)
+    )
+    .filter((cells) => cells.length >= 2)
+    .filter((cells) => !cells.every((cell) => /^:?-{2,}:?$/.test(cell)))
+
+  const dataRows = rows.slice(1)
+  return dataRows[rowNumber - 1] || []
 }
 
 function extractMoneySnippet(content: string) {

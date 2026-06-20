@@ -11,6 +11,7 @@ import {
   normalizeIdeaStepData,
 } from '@/lib/mission-control/ideas'
 import { generateProjectArtifactWithHermes } from '@/lib/mission-control/project-agent-runtime'
+import { sendIdeaFinalBriefToDailyBrief, type IdeaBriefDeliveryResult } from '@/lib/mission-control/idea-brief-delivery'
 import {
   canQueueAutomatedIdeaStep,
   getNextIncompleteIdeaStep,
@@ -185,6 +186,65 @@ async function upsertIdeaStepWorkItem(params: {
   })
 }
 
+function hasReviewBriefAlreadySent(stepData: JsonRecord) {
+  const finalStep = asJsonRecord(stepData[FINAL_IDEA_STEP_INDEX.toString()])
+  return typeof finalStep.final_brief_daily_brief_sent_at === 'string' && finalStep.final_brief_daily_brief_sent_at.trim().length > 0
+}
+
+async function attachReviewBriefDeliveryMetadata(params: {
+  idea: IdeaRow
+  stepData: JsonRecord
+}): Promise<{ stepData: JsonRecord; delivery: IdeaBriefDeliveryResult | null }> {
+  const finalStepKey = FINAL_IDEA_STEP_INDEX.toString()
+  const finalStep = asJsonRecord(params.stepData[finalStepKey])
+
+  if (hasReviewBriefAlreadySent(params.stepData)) {
+    return { stepData: params.stepData, delivery: null }
+  }
+
+  const attemptedAt = new Date().toISOString()
+  let delivery: IdeaBriefDeliveryResult
+
+  try {
+    delivery = await sendIdeaFinalBriefToDailyBrief({
+      id: params.idea.id,
+      title: params.idea.title,
+      slug: params.idea.slug,
+      summary: params.idea.summary,
+      stepData: params.stepData,
+      stepApprovals: params.idea.step_approvals || {},
+      approvedAt: null,
+    })
+  } catch (error) {
+    delivery = {
+      ok: false,
+      error: error instanceof Error ? error.message : 'No se pudo enviar el PDF final al canal daily-brief.',
+    }
+  }
+
+  const updatedFinalStep = {
+    ...finalStep,
+    final_brief_daily_brief_attempted_at: attemptedAt,
+    final_brief_daily_brief_filename: delivery.filename || finalStep.final_brief_daily_brief_filename || null,
+    final_brief_daily_brief_bytes: delivery.bytes || null,
+    final_brief_daily_brief_status: delivery.discordStatus || null,
+    final_brief_daily_brief_error: delivery.ok ? null : delivery.error || 'No se pudo enviar el PDF final al canal daily-brief.',
+    ...(delivery.ok
+      ? {
+          final_brief_daily_brief_sent_at: attemptedAt,
+        }
+      : {}),
+  }
+
+  return {
+    stepData: {
+      ...params.stepData,
+      [finalStepKey]: updatedFinalStep,
+    },
+    delivery,
+  }
+}
+
 export async function runIdeaPipelineAutomation(ideaId: string) {
   const supabase = await createPrivilegedServerClient()
   const idea = await fetchIdea(ideaId)
@@ -288,6 +348,11 @@ export async function runIdeaPipelineAutomation(ideaId: string) {
     }
 
     const readyForReview = isIdeaReadyForReview(stepData)
+    if (readyForReview) {
+      const reviewBrief = await attachReviewBriefDeliveryMetadata({ idea, stepData })
+      stepData = reviewBrief.stepData
+    }
+
     const nextIncompleteStep = getNextIncompleteIdeaStep(stepData)
     const currentStep = nextIncompleteStep ?? FINAL_IDEA_STEP_INDEX
     const workflowStage = readyForReview ? 'idea_review' : 'idea_pipeline'
@@ -392,7 +457,7 @@ export async function runIdeaStepAutomation(ideaId: string, step: number) {
       generation_model: generated.model,
     })
 
-    const stepData = {
+    let stepData = {
       ...currentStepData,
       [step.toString()]: mergedStep,
     }
@@ -408,6 +473,11 @@ export async function runIdeaStepAutomation(ideaId: string, step: number) {
     })
 
     const readyForReview = isIdeaReadyForReview(stepData)
+    if (readyForReview) {
+      const reviewBrief = await attachReviewBriefDeliveryMetadata({ idea, stepData })
+      stepData = reviewBrief.stepData
+    }
+
     const { error: updateError } = await supabase
       .from('business_ideas')
       .update({

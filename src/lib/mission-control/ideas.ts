@@ -1,8 +1,8 @@
 import {
-  ALL_CASHFLOW_ROWS,
   ALL_PNL_INPUT_ROWS,
+  BENCHMARK_FIELDS,
   BMC_FIELDS,
-  CASHFLOW_PERIODS,
+  COST_PRICING_FIELDS,
   CUSTOMER_ARCHETYPE_FIELDS,
   CUSTOMER_JOURNEY_FIELDS,
   FINAL_IDEA_STEP_INDEX,
@@ -18,6 +18,7 @@ export const IDEA_STEP_ASSIGNMENTS = [
   { slug: 'cx-analyst', name: 'CX Analyst', team: 'Marketing' },
   { slug: 'research', name: 'Research', team: 'Product' },
   { slug: 'product-lead', name: 'Product Lead', team: 'Product' },
+  { slug: 'research', name: 'Research', team: 'Product' },
   { slug: 'research', name: 'Research', team: 'Product' },
   { slug: 'product-lead', name: 'Product Lead', team: 'Product' },
   { slug: 'finance-analyst', name: 'Finance Analyst', team: 'Product' },
@@ -39,11 +40,12 @@ const DEFAULT_SKILLS_BY_STEP: readonly string[][] = [
   ['wizard-step2-customer-archetype'],
   ['wizard-step3-customer-journey'],
   ['wizard-step4-business-model-canvas'],
+  ['wizard-step5-competitive-benchmark'],
   ['wizard-step5-market-sizing'],
   ['wizard-step6-pnl-unit-economics'],
   ['wizard-step7-cashflow'],
   ['wizard-step8-moat-analysis'],
-  ['wizard-step9-go-no-go'],
+  ['wizard-step10-go-no-go'],
 ]
 
 export type IdeaStepAssignment = (typeof IDEA_STEP_ASSIGNMENTS)[number] & {
@@ -64,6 +66,12 @@ const META_KEYS = new Set([
   'generated_by_name',
   'generation_provider',
   'generation_model',
+  'final_brief_daily_brief_attempted_at',
+  'final_brief_daily_brief_sent_at',
+  'final_brief_daily_brief_filename',
+  'final_brief_daily_brief_bytes',
+  'final_brief_daily_brief_status',
+  'final_brief_daily_brief_error',
 ])
 
 export function getIdeaStepAssignment(step: number): IdeaStepAssignment {
@@ -89,10 +97,12 @@ export function getStructuredFieldKeys(step: number) {
       return CUSTOMER_JOURNEY_FIELDS.map((field) => field.key)
     case 'bmc':
       return BMC_FIELDS.map((field) => field.key)
+    case 'benchmark':
+      return BENCHMARK_FIELDS.map((field) => field.key)
     case 'pnl':
       return ALL_PNL_INPUT_ROWS.map((field) => field.key)
     case 'cashflow':
-      return ALL_CASHFLOW_ROWS.flatMap((field) => CASHFLOW_PERIODS.map((period) => `${field.key}__${period}`))
+      return COST_PRICING_FIELDS.map((field) => field.key)
     case 'tam':
       return TAM_FIELDS.map((field) => field.key)
     case 'moat':
@@ -114,14 +124,12 @@ export function getFieldLabelMap(step: number) {
       return Object.fromEntries(CUSTOMER_JOURNEY_FIELDS.map((field) => [field.key, field.label]))
     case 'bmc':
       return Object.fromEntries(BMC_FIELDS.map((field) => [field.key, field.label]))
+    case 'benchmark':
+      return Object.fromEntries(BENCHMARK_FIELDS.map((field) => [field.key, field.label]))
     case 'pnl':
       return Object.fromEntries(ALL_PNL_INPUT_ROWS.map((field) => [field.key, field.label]))
     case 'cashflow':
-      return Object.fromEntries(
-        ALL_CASHFLOW_ROWS.flatMap((field) =>
-          CASHFLOW_PERIODS.map((period) => [`${field.key}__${period}`, `${field.label} · ${period}`])
-        )
-      )
+      return Object.fromEntries(COST_PRICING_FIELDS.map((field) => [field.key, field.label]))
     case 'tam':
       return Object.fromEntries(TAM_FIELDS.map((field) => [field.key, field.label]))
     case 'moat':
