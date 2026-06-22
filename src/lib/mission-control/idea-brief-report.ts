@@ -122,6 +122,8 @@ function humanizeKey(key: string) {
 function compactText(value: string) {
   return value
     .replace(/\[object Object\]/g, '')
+    .replace(/(^|\n)\s*[,;]+\s*(?=\n|$)/g, '\n')
+    .replace(/,{2,}/g, '\n')
     .replace(/\s+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]{2,}/g, ' ')
@@ -355,11 +357,20 @@ function getKnownFieldsForStep(stepIndex: number, data: JsonRecord): IdeaBriefFi
   return fields
 }
 
+function formatCompactMoney(value: number) {
+  const abs = Math.abs(value)
+  const sign = value < 0 ? '-' : ''
+  if (abs >= 1_000_000_000) return `${sign}$${(abs / 1_000_000_000).toFixed(abs >= 10_000_000_000 ? 0 : 1)}B`
+  if (abs >= 1_000_000) return `${sign}$${(abs / 1_000_000).toFixed(abs >= 10_000_000 ? 0 : 1)}M`
+  if (abs >= 1_000) return `${sign}$${(abs / 1_000).toFixed(abs >= 10_000 ? 0 : 1)}K`
+  return formatMoney(value)
+}
+
 function moneyLabel(value: unknown, max = 22) {
   const rendered = firstLine(value, max)
   if (!rendered) return ''
   const amount = parseMoney(rendered)
-  if (amount > 0 && /^\$?\s*[\d.,]+$/.test(rendered)) return formatMoney(amount)
+  if (amount > 0) return formatCompactMoney(amount)
   return rendered
 }
 
@@ -453,9 +464,9 @@ function chartForSection(kind: IdeaStepKind, data: JsonRecord, fields: IdeaBrief
     }
     case 'tam': {
       const items = [
-        { label: 'TAM', value: parseMoney(stringifyValue(data.tam_num)), display: firstLine(data.tam_num, 18) || 'N/D', emphasis: 'acid' as const },
-        { label: 'SAM', value: parseMoney(stringifyValue(data.sam_num)), display: firstLine(data.sam_num, 18) || 'N/D', emphasis: 'coral' as const },
-        { label: 'SOM', value: parseMoney(stringifyValue(data.som_num)), display: firstLine(data.som_num, 18) || 'N/D', emphasis: 'blue' as const },
+        { label: 'TAM', value: parseMoney(stringifyValue(data.tam_num)), display: moneyLabel(data.tam_num) || 'N/D', emphasis: 'acid' as const },
+        { label: 'SAM', value: parseMoney(stringifyValue(data.sam_num)), display: moneyLabel(data.sam_num) || 'N/D', emphasis: 'coral' as const },
+        { label: 'SOM', value: parseMoney(stringifyValue(data.som_num)), display: moneyLabel(data.som_num) || 'N/D', emphasis: 'blue' as const },
       ]
       return { type: 'waterfall', items }
     }
@@ -472,7 +483,9 @@ function chartForSection(kind: IdeaStepKind, data: JsonRecord, fields: IdeaBrief
         ],
       }
     }
-    case 'cashflow':
+    case 'cashflow': {
+      const hasCostPricingShape = COST_PRICING_FIELDS.some((field) => stringifyValue(data[field.key]))
+      if (!hasCostPricingShape) return null
       return {
         type: 'margin-stack',
         items: [
@@ -482,6 +495,7 @@ function chartForSection(kind: IdeaStepKind, data: JsonRecord, fields: IdeaBrief
           { label: 'Margen', value: firstLine(data.gross_margin, 42) || 'Por modelar', emphasis: 'acid' },
         ],
       }
+    }
     case 'moat':
       return {
         type: 'scorecard',

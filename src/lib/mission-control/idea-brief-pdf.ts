@@ -430,30 +430,157 @@ function drawChart(doc: PDFKit.PDFDocument, chart: IdeaBriefChartSpec | null | u
   doc.y = rect.y + rect.height + 20
 }
 
+function splitTextToFit(
+  doc: PDFKit.PDFDocument,
+  value: string,
+  width: number,
+  maxHeight: number,
+  fontSize: number,
+  lineGap: number
+) {
+  const chunks: string[] = []
+  const paragraphs = value.split(/\n{2,}/).map((part) => part.trim()).filter(Boolean)
+  let current = ''
+
+  const fits = (text: string) => {
+    doc.font('Helvetica').fontSize(fontSize)
+    return doc.heightOfString(text, { width, lineGap }) <= maxHeight
+  }
+
+  const flush = () => {
+    if (current.trim()) chunks.push(current.trim())
+    current = ''
+  }
+
+  const pushWords = (paragraph: string) => {
+    const words = paragraph.split(/\s+/).filter(Boolean)
+    for (const word of words) {
+      const candidate = current ? `${current} ${word}` : word
+      if (fits(candidate)) {
+        current = candidate
+      } else {
+        flush()
+        current = word
+      }
+    }
+  }
+
+  for (const paragraph of paragraphs.length ? paragraphs : [value]) {
+    const candidate = current ? `${current}\n\n${paragraph}` : paragraph
+    if (fits(candidate)) {
+      current = candidate
+      continue
+    }
+    flush()
+    if (fits(paragraph)) {
+      current = paragraph
+    } else {
+      pushWords(paragraph)
+    }
+  }
+  flush()
+  return chunks.length ? chunks : ['']
+}
+
 function drawSummary(doc: PDFKit.PDFDocument, section: IdeaBriefSection, context: PageContext) {
   if (section.executiveSummary.length === 0) return
   const text = section.executiveSummary.map((item) => `• ${item}`).join('\n')
-  const height = Math.min(112, textHeight(doc, text, CONTENT_WIDTH - 28, 8.8, 2) + 38)
-  ensureSpace(doc, height + 10, context)
-  const y = doc.y
-  doc.roundedRect(PAGE.marginX, y, CONTENT_WIDTH, height, 10).fill(COLORS.bg2)
-  doc.rect(PAGE.marginX, y, 4, height).fill(section.kind === 'go-no-go' ? COLORS.coral : COLORS.acid)
-  drawLabel(doc, 'SÍNTESIS EJECUTIVA DEL PASO', PAGE.marginX + 14, y + 13, CONTENT_WIDTH - 28, COLORS.acid)
-  doc.fillColor(COLORS.white).font('Helvetica').fontSize(8.8)
-  doc.text(truncate(text, 560), PAGE.marginX + 14, y + 30, { width: CONTENT_WIDTH - 28, height: height - 36, lineGap: 2 })
-  doc.y = y + height + 14
+  const contentWidth = CONTENT_WIDTH - 28
+  const fontSize = 8.8
+  const lineGap = 2
+  let remaining = text
+  let part = 1
+
+  while (remaining.trim()) {
+    ensureSpace(doc, 84, context)
+    const available = Math.max(74, CONTENT_BOTTOM - doc.y - 14)
+    const maxTextHeight = available - 38
+    const [chunk, ...rest] = splitTextToFit(doc, remaining, contentWidth, maxTextHeight, fontSize, lineGap)
+    const textBlock = chunk || remaining
+    const height = textHeight(doc, textBlock, contentWidth, fontSize, lineGap) + 38
+    const y = doc.y
+    doc.roundedRect(PAGE.marginX, y, CONTENT_WIDTH, height, 10).fill(COLORS.bg2)
+    doc.rect(PAGE.marginX, y, 4, height).fill(section.kind === 'go-no-go' ? COLORS.coral : COLORS.acid)
+    drawLabel(
+      doc,
+      part === 1 ? 'SÍNTESIS EJECUTIVA DEL PASO' : 'SÍNTESIS EJECUTIVA · CONTINUACIÓN',
+      PAGE.marginX + 14,
+      y + 13,
+      CONTENT_WIDTH - 28,
+      COLORS.acid
+    )
+    doc.fillColor(COLORS.white).font('Helvetica').fontSize(fontSize)
+    doc.text(textBlock, PAGE.marginX + 14, y + 30, { width: contentWidth, lineGap })
+    doc.y = y + height + 14
+    remaining = rest.join('\n\n')
+    part += 1
+  }
 }
 
-function drawFieldCard(doc: PDFKit.PDFDocument, field: IdeaBriefField, x: number, y: number, width: number, height: number) {
+function drawFieldCard(
+  doc: PDFKit.PDFDocument,
+  field: IdeaBriefField,
+  value: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  continuation = false
+) {
   doc.roundedRect(x, y, width, height, 8).fill(COLORS.surface)
   doc.rect(x, y, 3, height).fill(accentColor(field.emphasis))
-  drawLabel(doc, field.label, x + 11, y + 10, width - 22, fieldColor(field))
+  drawLabel(doc, continuation ? `${field.label} · continuación` : field.label, x + 11, y + 10, width - 22, fieldColor(field))
   doc.fillColor(COLORS.text).font('Helvetica').fontSize(8.2)
-  doc.text(truncate(field.value, height < 96 ? 190 : 430), x + 11, y + 28, {
+  doc.text(value, x + 11, y + 28, {
     width: width - 22,
-    height: height - 34,
     lineGap: 2,
   })
+}
+
+function fieldCardHeight(doc: PDFKit.PDFDocument, field: IdeaBriefField, width: number) {
+  const labelHeight = doc.heightOfString(field.label.toUpperCase(), { width: width - 22 })
+  return labelHeight + textHeight(doc, field.value, width - 22, 8.2, 2) + 42
+}
+
+function drawFullWidthField(doc: PDFKit.PDFDocument, field: IdeaBriefField, context: PageContext) {
+  const width = CONTENT_WIDTH
+  const contentWidth = width - 22
+  const fontSize = 8.2
+  const lineGap = 2
+  let remaining = field.value
+  let part = 1
+
+  while (remaining.trim()) {
+    const fullHeight = textHeight(doc, remaining, contentWidth, fontSize, lineGap) + 42
+    const fullPageCapacity = CONTENT_BOTTOM - PAGE.marginTop - 10
+    if (fullHeight <= fullPageCapacity && doc.y + fullHeight + 10 > CONTENT_BOTTOM) {
+      addPage(doc, context)
+    }
+
+    ensureSpace(doc, 86, context)
+    const available = Math.max(88, CONTENT_BOTTOM - doc.y - 10)
+    const maxTextHeight = available - 42
+    const chunks = splitTextToFit(doc, remaining, contentWidth, maxTextHeight, fontSize, lineGap)
+    const chunk = chunks[0] || remaining
+    const height = textHeight(doc, chunk, contentWidth, fontSize, lineGap) + 42
+    drawFieldCard(doc, field, chunk, PAGE.marginX, doc.y, width, height, part > 1)
+    doc.y += height + 10
+    remaining = chunks.slice(1).join('\n\n')
+    part += 1
+  }
+}
+
+function drawShortFieldPair(doc: PDFKit.PDFDocument, left: IdeaBriefField, right: IdeaBriefField | null, context: PageContext) {
+  const colGap = 10
+  const colWidth = (CONTENT_WIDTH - colGap) / 2
+  const leftHeight = fieldCardHeight(doc, left, colWidth)
+  const rightHeight = right ? fieldCardHeight(doc, right, colWidth) : 0
+  const height = Math.max(leftHeight, rightHeight, 74)
+  ensureSpace(doc, height + 12, context)
+  const y = doc.y
+  drawFieldCard(doc, left, left.value, PAGE.marginX, y, colWidth, height)
+  if (right) drawFieldCard(doc, right, right.value, PAGE.marginX + colWidth + colGap, y, colWidth, height)
+  doc.y = y + height + 12
 }
 
 function drawFields(doc: PDFKit.PDFDocument, section: IdeaBriefSection, context: PageContext) {
@@ -465,50 +592,35 @@ function drawFields(doc: PDFKit.PDFDocument, section: IdeaBriefSection, context:
     return
   }
 
-  drawLabel(doc, 'CAMPOS ESTRUCTURADOS', PAGE.marginX, doc.y, CONTENT_WIDTH)
+  drawLabel(doc, 'CAMPOS ESTRUCTURADOS · TEXTO COMPLETO', PAGE.marginX, doc.y, CONTENT_WIDTH)
   doc.y += 14
 
-  const colGap = 10
-  const colWidth = (CONTENT_WIDTH - colGap) / 2
   let pendingSmall: IdeaBriefField | null = null
+  const colWidth = (CONTENT_WIDTH - 10) / 2
 
   for (const field of section.fields) {
-    const isSmall = field.value.length < 180 && field.label.length < 42
+    const compactHeight = fieldCardHeight(doc, field, colWidth)
+    const isSmall = field.value.length < 220 && field.label.length < 46 && compactHeight <= 112
+
     if (isSmall) {
       if (!pendingSmall) {
         pendingSmall = field
         continue
       }
-      ensureSpace(doc, 86, context)
-      const y = doc.y
-      drawFieldCard(doc, pendingSmall, PAGE.marginX, y, colWidth, 76)
-      drawFieldCard(doc, field, PAGE.marginX + colWidth + colGap, y, colWidth, 76)
-      doc.y = y + 88
+      drawShortFieldPair(doc, pendingSmall, field, context)
       pendingSmall = null
       continue
     }
 
     if (pendingSmall) {
-      ensureSpace(doc, 86, context)
-      const y = doc.y
-      drawFieldCard(doc, pendingSmall, PAGE.marginX, y, colWidth, 76)
-      doc.y = y + 88
+      drawShortFieldPair(doc, pendingSmall, null, context)
       pendingSmall = null
     }
 
-    const valueHeight = textHeight(doc, field.value, CONTENT_WIDTH - 22, 8.2, 2)
-    const height = clamp(valueHeight + 46, 82, 146)
-    ensureSpace(doc, height + 12, context)
-    drawFieldCard(doc, field, PAGE.marginX, doc.y, CONTENT_WIDTH, height)
-    doc.y += height + 10
+    drawFullWidthField(doc, field, context)
   }
 
-  if (pendingSmall) {
-    ensureSpace(doc, 86, context)
-    const y = doc.y
-    drawFieldCard(doc, pendingSmall, PAGE.marginX, y, colWidth, 76)
-    doc.y = y + 88
-  }
+  if (pendingSmall) drawShortFieldPair(doc, pendingSmall, null, context)
 }
 
 function drawSection(doc: PDFKit.PDFDocument, section: IdeaBriefSection) {
