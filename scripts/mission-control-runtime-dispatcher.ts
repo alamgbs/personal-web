@@ -175,6 +175,7 @@ const DEFAULT_MAX_BACKLOG_SELECTIONS = 6
 const MAX_MARKDOWN_PREVIEW_LENGTH = 240
 const WORKER_NAME = process.env.MC_RUNTIME_CLAIMED_BY?.trim() || 'hermes'
 const REPORT_WORKER_NAME = process.env.MC_RUNTIME_DISPATCHER_NAME?.trim() || WORKER_NAME
+const BACKLOG_PROJECT_SLUG_FILTER = parseCsvEnv(process.env.MC_RUNTIME_PROJECT_SLUGS)
 const execFileAsync = promisify(execFile)
 const HERMES_BIN_CANDIDATES = [process.env.HERMES_CLI_PATH, '/usr/local/lib/hermes-agent/venv/bin/hermes', 'hermes'].filter(Boolean) as string[]
 
@@ -192,6 +193,13 @@ function parseNonNegativeInt(value: string | undefined, fallback: number) {
   if (!value) return fallback
   const parsed = Number.parseInt(value, 10)
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback
+}
+
+function parseCsvEnv(value: string | undefined) {
+  return (value || '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
 }
 
 function buildStaleCutoffIso(minutes: number) {
@@ -470,7 +478,24 @@ async function reclaimStaleBacklogItems(staleAfterMinutes: number) {
 async function listExecutableBacklogCandidates() {
   const supabase = createAdminClient()
 
-  const { data: items, error: itemsError } = await supabase
+  let allowedProjectIds: string[] | null = null
+  if (BACKLOG_PROJECT_SLUG_FILTER.length > 0) {
+    const { data: projects, error: projectsError } = await supabase
+      .from('projects')
+      .select('id, slug')
+      .in('slug', BACKLOG_PROJECT_SLUG_FILTER)
+
+    if (projectsError) {
+      throw new Error(`Failed to resolve MC_RUNTIME_PROJECT_SLUGS: ${projectsError.message}`)
+    }
+
+    allowedProjectIds = (projects || []).map((project) => project.id).filter(Boolean)
+    if (allowedProjectIds.length === 0) {
+      return { executable: [] as Array<BacklogItemRow & { assignee_profile: string | null }>, considered: 0 }
+    }
+  }
+
+  let query = supabase
     .from('backlog_items')
     .select(`
       id,
@@ -500,6 +525,12 @@ async function listExecutableBacklogCandidates() {
       updated_at
     `)
     .eq('status', 'backlog')
+
+  if (allowedProjectIds) {
+    query = query.in('project_id', allowedProjectIds)
+  }
+
+  const { data: items, error: itemsError } = await query
     .order('position', { ascending: true })
     .limit(100)
 
@@ -520,6 +551,58 @@ async function listExecutableBacklogCandidates() {
   if (dependenciesError) {
     throw new Error(`Failed to list backlog_item_dependencies: ${dependenciesError.message}`)
   }
+
+  const rowIds = new Set(rows.map((item) => item.id))
+  const dependencyParentIds = Array.from(
+    new Set(
+      ((dependencies || []) as DependencyRow[])
+        .map((dependency) => dependency.depends_on_backlog_item_id)
+        .filter((id): id is string => Boolean(id) && !rowIds.has(id))
+    )
+  )
+
+  const { data: dependencyParents, error: dependencyParentsError } = dependencyParentIds.length
+    ? await supabase
+        .from('backlog_items')
+        .select('id, status')
+        .in('id', dependencyParentIds)
+    : { data: [], error: null }
+
+  if (dependencyParentsError) {
+    throw new Error(`Failed to list backlog dependency parent statuses: ${dependencyParentsError.message}`)
+  }
+
+  const dependencyParentRows = ((dependencyParents || []) as Array<{ id: string; status: string | null }>).map(
+    (parent): BacklogItemRow => ({
+      id: parent.id,
+      project_id: '',
+      sprint_number: null,
+      title: '',
+      description: null,
+      status: parent.status,
+      priority: null,
+      type: null,
+      assignee_slug: null,
+      review_owner_slug: null,
+      tags: null,
+      position: null,
+      stage: null,
+      required_skills: null,
+      artifact_markdown: null,
+      execution_mode: null,
+      runtime_profile_name: null,
+      runtime_status: null,
+      claimed_by: null,
+      claimed_at: null,
+      started_at: null,
+      heartbeat_at: null,
+      completed_at: null,
+      attempt_count: null,
+      last_error: null,
+      created_at: '',
+      updated_at: '',
+    })
+  )
 
   const assigneeSlugs = Array.from(
     new Set(rows.map((item) => item.assignee_slug).filter((slug): slug is string => Boolean(slug)))
@@ -546,7 +629,7 @@ async function listExecutableBacklogCandidates() {
     }
   }) as BacklogItemRow[]
 
-  const runtime = computeBacklogRuntime(normalized, (dependencies || []) as DependencyRow[])
+  const runtime = computeBacklogRuntime([...normalized, ...dependencyParentRows], (dependencies || []) as DependencyRow[])
   const executableById = new Set(runtime.filter((item) => item.is_executable).map((item) => item.id))
   const executable = normalized
     .filter((item) => executableById.has(item.id))
